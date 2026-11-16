@@ -50,7 +50,7 @@ export class Helper {
     const app = appPath();
     if (!app || existsSync(join(dirname(SOCK), "stopped")) || Date.now() - this.launchedAt < 5000) return false;
     this.launchedAt = Date.now();
-    launchApp(app);
+    void launchApp(app);
     for (let attempt = 0; attempt < 20; attempt++) {
       await Bun.sleep(100);
       if (await this.open()) return true;

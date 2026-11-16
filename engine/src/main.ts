@@ -190,7 +190,7 @@ async function start(): Promise<number> {
     console.error("figxit start: Figxit.app was not found");
     return 1;
   }
-  launchApp(app);
+  await launchApp(app);
   for (let attempt = 0; attempt < 30; attempt++) {
     await Bun.sleep(100);
     if (await reachable(HELPER_SOCK)) {

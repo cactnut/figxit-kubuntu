@@ -76,8 +76,9 @@ engine と helper の間のプロトコルは macOS 版と同じものを使う�
 | WindowLocator | 前面のウィンドウの位置、pid、出力先の画面を取る | デスクトップ環境 | KWin スクリプト + D-Bus | GNOME：Shell 拡張、Sway：`swaymsg -t get_tree`、Hyprland：`hyprctl activewindow`、X11：EWMH |
 | Surface | ポップアップを好きな座標に、フォーカスを奪わずに出す | Wayland プロトコル | layer-shell（LayerShellQt） | GNOME：別の方法が必要、X11：override-redirect ウィンドウ |
 | TerminalProfile | ターミナルごとの癖を補正する（セルの大きさの単位など） | ターミナル | Ghostty（macOS 版から移植） | ターミナルごとに表に 1 行 |
+| FocusTracker | フォーカスのある要素と、そのまわりのテキスト領域を取る | アクセシビリティ | AT-SPI（D-Bus） | Linux ならデスクトップ環境を問わず同じ |
 
-バックエンドは起動時に `backends.cpp` で選ぶ。`Helper` は `WindowLocator` と `PopupSurface` だけを知っていて、KWin や layer-shell を直接は使わない。
+バックエンドは起動時に `backends.cpp` で選ぶ。`main.cpp` がそれを `Helper` に渡し、`Helper` は `WindowLocator`、`PopupSurface`、`FocusTracker` のインターフェースだけを知っている。KWin、layer-shell、AT-SPI を直接は使わない。テスト（`tests/helper_test.cpp`）は偽物を渡して、一覧の出し方と閉じ方を確かめる。
 
 - WindowLocator：`backends.cpp` の表に並べた順に、使えるもの（KWin なら D-Bus に `org.kde.KWin` がある）を試し、最初に `start()` できたものを使う。`FIGXIT_WINDOW_BACKEND=kwin` のように名前で選べる。`none` にすると使わない（ポップアップは固定の位置に出る）
 - PopupSurface：Qt のプラットフォームが Wayland で、LayerShellQt を入れてビルドしたときは layer-shell。どれも使えなければ、helper は動くが `show` に失敗を返す
@@ -122,15 +123,17 @@ helper-linux/
   CMakeLists.txt
   dev.sh                     # make dev の Linux 版。helper と engine を起動する
   src/
-    main.cpp                 # 起動、engine の命令の処理（Helper クラス）
+    main.cpp                 # 起動。引数、ロック、シグナル、helper.sock、engine の起動
+    helper.{h,cpp}           # engine の命令の処理と、一覧を出す・閉じる判断（Helper クラス）
     server.{h,cpp}           # helper.sock、JSON の 1 行ずつの読み書き
     protocol.{h,cpp}         # Protocol.swift と同じ型
     popup.{h,cpp}            # 描画
     theme.{h,cpp}            # 色。kdeglobals から読む
     placement.{h,cpp}        # 配置の計算（Geometry.fit と visibleSurface の移植、純粋関数）
     terminals.{h,cpp}        # ターミナルごとの補正（TerminalProfile）。app id で引く
+    focus.h                  # FocusTracker
     accessibility.{h,cpp}    # AT-SPI でフォーカスのある要素からテキスト領域を探す（VS Code）
-    backends.{h,cpp}         # デスクトップごとの WindowLocator と PopupSurface を選ぶ
+    backends.{h,cpp}         # デスクトップごとの WindowLocator、PopupSurface、FocusTracker を選ぶ
     surface.h                # PopupSurface
     surface/layershell.{h,cpp}
     locator.h                # WindowLocator
@@ -139,6 +142,7 @@ helper-linux/
     resources.qrc
   tests/
     placement_test.cpp       # GeometryTests.swift の移植と Linux 用のテスト
+    helper_test.cpp          # Helper に偽の locator、surface、FocusTracker を渡すテスト
 ```
 
 ターミナルごとの補正（TerminalProfile）は、Konsole では要らなかった（下の 3）。`terminals.{h,cpp}` の表に app id ごとに書く。いまは Ghostty（`com.mitchellh.ghostty`）の「セルの大きさを実ピクセルで答える」だけで、これは macOS 版の `Geometry.physicalPixels` の移植（Linux の Ghostty では未確認）。必要なターミナルが出てきたら、この表に 1 行足す。
@@ -348,7 +352,7 @@ helper-linux/dev.sh
 
 で helper と engine が起動する。新しい Konsole のタブで `source shell/bash/figxit.bash` すると補完がカーソルの下に出る。helper は各配置を `~/.local/state/figxit/helper.log` に書く（`FIGXIT_DEBUG=1`）。KWin がないときは、画面の左上から 80,80 の固定の位置に出る（`FIGXIT_POPUP_AT=x,y` で変えられる）。
 
-`cmake --build helper-linux/build && helper-linux/build/placement_test` で配置の計算のテストが走る。
+`cmake --build helper-linux/build && ctest --test-dir helper-linux/build` でテストが走る。`placement_test` は配置の計算、`helper_test` は一覧を出す・閉じる判断（アクティブなウィンドウがないとき、別のウィンドウや同じアプリの別の要素にフォーカスが移ったとき、など）を確かめる。`helper_test` は offscreen で動くので、画面は要らない。
 
 確かめたこと（2026-11-16）：
 

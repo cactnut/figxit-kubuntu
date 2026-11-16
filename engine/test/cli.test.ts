@@ -12,7 +12,10 @@ test("open launches the app with the menu bar recovery flag and preserves launch
     const app = join(work, "App With Spaces.app");
     const args = join(work, "args");
     mkdirSync(app);
-    writeFileSync(join(work, "open"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$OPEN_ARGS"\nexit "$OPEN_EXIT"\n', { mode: 0o755 });
+    // macOS opens the app; Linux runs its helper in a new session.
+    const darwin = process.platform === "darwin";
+    const expected = darwin ? `${app}\n--args\n--show-menu-bar\n` : `-f\n${join(app, "Contents/MacOS/figxit-helper")}\n--show-menu-bar\n`;
+    writeFileSync(join(work, darwin ? "open" : "setsid"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$OPEN_ARGS"\nexit "$OPEN_EXIT"\n', { mode: 0o755 });
     for (const code of [0, 1]) {
       const result = Bun.spawnSync([process.execPath, cli, "open"], {
         env: { ...process.env, FIGXIT_APP: app, FIGXIT_HELPER_SOCK: join(work, "none.sock"), PATH: work, OPEN_ARGS: args, OPEN_EXIT: String(code) },
@@ -20,7 +23,7 @@ test("open launches the app with the menu bar recovery flag and preserves launch
       });
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(code);
-      expect(readFileSync(args, "utf8")).toBe(`${app}\n--args\n--show-menu-bar\n`);
+      expect(readFileSync(args, "utf8")).toBe(expected);
     }
   } finally {
     rmSync(work, { recursive: true, force: true });

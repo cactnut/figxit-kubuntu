@@ -1,7 +1,47 @@
 #include "theme.h"
 
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusVariant>
 #include <QDir>
 #include <QFile>
+#include <optional>
+
+namespace
+{
+
+// Whether the desktop is dark, as the desktop portal said last.
+std::optional<bool> portalDark;
+
+// color-scheme: 1 is dark, 2 light, 0 no preference. Read wraps it in one
+// more variant than ReadOne.
+std::optional<uint> colorScheme(const QDBusMessage &reply)
+{
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) return std::nullopt;
+    QVariant value = reply.arguments().at(0);
+    while (value.metaType() == QMetaType::fromType<QDBusVariant>()) value = value.value<QDBusVariant>().variant();
+    bool ok = false;
+    const uint scheme = value.toUInt(&ok);
+    return ok ? std::optional(scheme) : std::nullopt;
+}
+
+// Asks without waiting, so a slow or missing portal does not hold up the
+// list. Portals before version 2 have only Read.
+void askPortal(const QString &method = QStringLiteral("ReadOne"))
+{
+    QDBusMessage call = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.portal.Desktop"), QStringLiteral("/org/freedesktop/portal/desktop"),
+                                                       QStringLiteral("org.freedesktop.portal.Settings"), method);
+    call << QStringLiteral("org.freedesktop.appearance") << QStringLiteral("color-scheme");
+    auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call, 1000));
+    QObject::connect(watcher, &QDBusPendingCallWatcher::finished, [method](QDBusPendingCallWatcher *finished) {
+        finished->deleteLater();
+        if (const std::optional<uint> scheme = colorScheme(finished->reply())) portalDark = *scheme == 1;
+        else if (method == QLatin1String("ReadOne")) askPortal(QStringLiteral("Read"));
+    });
+}
+
+}
 
 QPalette breezePalette(bool dark)
 {
@@ -42,6 +82,10 @@ QPalette desktopPalette()
     QString config = qEnvironmentVariable("XDG_CONFIG_HOME");
     if (!config.startsWith(QLatin1Char('/'))) config = QDir::homePath() + QStringLiteral("/.config");
     QFile file(config + QStringLiteral("/kdeglobals"));
-    if (!file.open(QIODevice::ReadOnly)) return breezePalette(false);
-    return paletteFromKdeGlobals(QString::fromUtf8(file.readAll()));
+    if (file.open(QIODevice::ReadOnly)) {
+        const QString text = QString::fromUtf8(file.readAll());
+        if (text.contains(QLatin1String("[Colors:Window]"))) return paletteFromKdeGlobals(text);
+    }
+    askPortal();
+    return breezePalette(portalDark.value_or(false));
 }

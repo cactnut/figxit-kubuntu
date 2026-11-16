@@ -197,6 +197,7 @@ public:
         if (m_focus->start()) QObject::connect(m_focus.get(), &AccessibleFocus::focusChanged, m_focus.get(), [this] { focusChanged(); });
         else m_focus.reset();
         if (!m_server.start()) return false;
+        desktopPalette(); // asks the desktop portal early, on desktops without kdeglobals
         m_engine = EngineSupervisor::create();
         if (m_engine) {
             markStopped(m_socket, false);

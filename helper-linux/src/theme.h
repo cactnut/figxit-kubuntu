@@ -9,4 +9,9 @@
 
 QPalette breezePalette(bool dark);
 QPalette paletteFromKdeGlobals(const QString &text);
+
+// The desktop's colors: from kdeglobals on KDE Plasma. Elsewhere Breeze's,
+// light or dark as the desktop portal's color-scheme says. The portal answers
+// later, so a change shows from the list after the next one; call this once
+// at start, so the first list has it.
 QPalette desktopPalette();

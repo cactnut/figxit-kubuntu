@@ -183,7 +183,8 @@ public:
         if (m_locator) QObject::connect(m_locator.get(), &WindowLocator::changed, m_locator.get(), [this] { windowChanged(); });
         else std::fprintf(stderr, "figxit-helper: no window backend for this desktop, the list opens at a fixed place\n");
         m_focus = std::make_unique<AccessibleFocus>();
-        if (!m_focus->start()) m_focus.reset();
+        if (m_focus->start()) QObject::connect(m_focus.get(), &AccessibleFocus::focusChanged, m_focus.get(), [this] { focusChanged(); });
+        else m_focus.reset();
         if (!m_server.start()) return false;
         m_engine = EngineSupervisor::create();
         if (m_engine) {
@@ -199,6 +200,7 @@ private:
         Grid grid;
         QList<Item> items;
         int selected = 0;
+        QString focus; // the focused element the list was placed under, when AT-SPI told where it is
     };
 
     QByteArray handle(const QByteArray &line)
@@ -208,7 +210,7 @@ private:
         const QString &cmd = request->cmd;
         if (cmd == QLatin1String("show")) {
             if (!request->grid || !request->items) return statusReply(false, QStringLiteral("show needs grid and items"));
-            m_shown = Shown{m_locator ? m_locator->active() : std::nullopt, *request->grid, *request->items, request->selected};
+            m_shown = Shown{m_locator ? m_locator->active() : std::nullopt, *request->grid, *request->items, request->selected, {}};
             const QString why = place();
             if (why.isEmpty()) return statusReply(true);
             forget(true);
@@ -249,6 +251,7 @@ private:
         const Grid &grid = m_shown->grid;
         // The text area when the app tells it over AT-SPI, as in VS Code; else the whole window.
         const std::optional<QRectF> area = m_focus ? m_focus->surface(target.pid, target.client.topLeft()) : std::nullopt;
+        m_shown->focus = area ? m_focus->focusedId() : QString();
         const Fit fitted = fit(grid, area.value_or(QRectF(target.client)), area.has_value(), scale, target.appId == QLatin1String("com.mitchellh.ghostty"));
         if (debugging()) {
             std::fprintf(stderr, "show app=%s client=%d,%d %dx%d scale=%.3f grid=%dx%d at %d,%d cellPx=%.1fx%.1f pane=%d",
@@ -279,6 +282,14 @@ private:
         if (*active == *m_shown->window) return;
         m_shown->window = active;
         if (!place().isEmpty()) forget(true);
+    }
+
+    // Closes the list when focus moves inside the app, as when a click in
+    // VS Code leaves the terminal for the editor, like the macOS helper does.
+    // Typing does not move focus, so it does not close the list.
+    void focusChanged()
+    {
+        if (m_shown && !m_shown->focus.isEmpty() && m_focus->focusedId() != m_shown->focus) forget(true);
     }
 
     void forget(bool tellEngine)

@@ -228,7 +228,7 @@ helper は macOS 版と同じく engine を起動し、落ちたら起動し直�
 
 - メニューバーのアイコン → トレイアイコン（StatusNotifierItem、`QSystemTrayIcon`）
 - 設定画面、About
-- `figxit doctor` の Linux 用の表示のうち、accessibility の行は済み。helper は `probe` に `axTrusted`（AT-SPI につながったか）、アクティブなウィンドウ、grid を渡されたときの配置を返し、doctor は Linux では AT-SPI の説明を出す。ほかの行（Figxit Setup の案内など）はまだ macOS 向け
+- `figxit doctor` の Linux 用の表示のうち、accessibility の行は済み。helper は `probe` に `axTrusted`（AT-SPI につながったか）、アクティブなウィンドウ、grid を渡されたときの配置を返し、doctor は Linux では AT-SPI の説明を出す。ほかの行はどの OS でも通じる。macOS 向けのまま残っているのは `figxit open` で、ヘルプは「Show the menu bar icon and open Settings」、返事は「Settings is open」だが、Linux には設定画面がなく何も開かない
 - 自動アップデート（Sparkle）は対応しない
 - アイコンの中の記号（今は色付きの四角だけ。macOS 版は SF Symbols と SVG）
 

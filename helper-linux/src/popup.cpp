@@ -6,6 +6,7 @@
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QPainter>
+#include <QScreen>
 #include <QSurfaceFormat>
 #include <algorithm>
 #include <cmath>
@@ -138,17 +139,22 @@ Popup::Popup(ListWindow *window, PopupSurface *surface)
 {
 }
 
-void Popup::show(const QList<Item> &items, int selected, QPoint at, QScreen *screen)
+QRect Popup::show(const QList<Item> &items, int selected, const Placement &placement, QScreen *screen)
 {
-    if (items.isEmpty()) return hide();
+    if (items.isEmpty()) {
+        hide();
+        return {};
+    }
     const bool opening = !m_window->isVisible();
     const QSize needed = m_window->sizeFor(items);
     const int stepped = int(std::ceil(needed.width() / double(widthStep))) * widthStep;
     m_width = std::min(std::max(opening ? 0 : m_width, stepped), int(ListWindow::maxWidth));
     if (opening) m_window->setColors(desktopPalette());
     m_window->setItems(items, selected < 0 ? -1 : std::min(selected, int(items.size()) - 1));
-    m_surface->place(QRect(at, QSize(m_width, needed.height())), screen);
-    if (opening) m_window->show();
+    const QRect rect = popupRect(placement, QSize(m_width, needed.height()), screen ? screen->geometry() : QRect());
+    m_surface->place(rect, screen);
+    if (!m_window->isVisible()) m_window->show();
+    return rect;
 }
 
 void Popup::select(int index)

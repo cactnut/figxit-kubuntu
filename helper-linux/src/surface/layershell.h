@@ -21,4 +21,5 @@ public:
 private:
     QWindow *m_window;
     LayerShellQt::Window *m_layer;
+    QScreen *m_screen = nullptr;
 };

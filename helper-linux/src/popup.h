@@ -3,6 +3,7 @@
 // The list of suggestions. The sizes follow ListMetrics.regular in
 // helper/Sources/figxit-helper/Popup.swift.
 
+#include "placement.h"
 #include "protocol.h"
 
 #include <QFont>
@@ -61,7 +62,8 @@ public:
 
     Popup(ListWindow *window, PopupSurface *surface);
 
-    void show(const QList<Item> &items, int selected, QPoint at, QScreen *screen);
+    // Opens the list under the cursor's line, kept on screen when one is given.
+    QRect show(const QList<Item> &items, int selected, const Placement &placement, QScreen *screen);
     void select(int index);
     void hide();
     bool visible() const;

@@ -18,6 +18,10 @@ LayerShellSurface::LayerShellSurface(QWindow *window)
 
 void LayerShellSurface::place(const QRect &rect, QScreen *screen)
 {
+    // A layer surface stays on the output it was made for, so moving to
+    // another screen takes a new surface: hide now, and the popup shows again.
+    if (screen != m_screen && m_window->isVisible()) m_window->hide();
+    m_screen = screen;
     QPoint at = rect.topLeft();
     if (screen) {
         m_layer->setScreen(screen);

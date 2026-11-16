@@ -112,27 +112,28 @@ struct TerminalProfile {
 
 ### ディレクトリ構成
 
-（未）が付いたものはまだない。
-
 ```
 helper-linux/
   CMakeLists.txt
   dev.sh                     # make dev の Linux 版。helper と engine を起動する
   src/
-    main.cpp
+    main.cpp                 # 起動、engine の命令の処理（Helper クラス）
     server.{h,cpp}           # helper.sock、JSON の 1 行ずつの読み書き
     protocol.{h,cpp}         # Protocol.swift と同じ型
     popup.{h,cpp}            # 描画
     theme.{h,cpp}            # 色。kdeglobals から読む
+    placement.{h,cpp}        # 配置の計算（Geometry.fit の移植、純粋関数）
     surface.h                # PopupSurface
     surface/layershell.{h,cpp}
-    placement.{h,cpp}        # 配置の計算（純粋関数）（未）
-    locator/kwin.{h,cpp}     # （未）
-    locator/kwin/active-window.js   # KWin に読み込ませるスクリプト（未）
-    terminal/konsole.{h,cpp} # （未）
+    locator.h                # WindowLocator
+    locator/kwin.{h,cpp}
+    locator/kwin-locator.js  # KWin に読み込ませるスクリプト
+    resources.qrc
   tests/
-    placement_test.cpp       # （未）
+    placement_test.cpp       # GeometryTests.swift の移植と Linux 用のテスト
 ```
+
+ターミナルごとの補正（TerminalProfile）は、Konsole では要らなかった（下の 3）。必要なターミナルが出てきたら足す。
 
 ## 技術的な課題と対応案
 
@@ -144,6 +145,15 @@ Wayland では、アプリが他のウィンドウの位置を取れない。
 - スクリプトで `workspace.windowActivated` とウィンドウの `frameGeometryChanged` を購読し、`callDBus` で helper に通知する。ポーリングはしない
 - 装飾を除いた `clientGeometry` を使う。タイトルバーの高さを決め打ちしなくて済む
 - `pid` も取れるので、前面のウィンドウがシェルの親のターミナルかどうかを確かめられる
+
+実装（`locator/kwin.cpp`）：
+
+- helper は D-Bus に `/Locator`（`org.figxit.Locator`）を出し、スクリプトは helper の一意な D-Bus 名（`:1.234` の形）に `callDBus` する。決まった名前を取らなくて済む
+- スクリプトは `$XDG_RUNTIME_DIR/figxit-locator.js` に書き出して読み込ませる（書けないときは一時フォルダ）。名前は `figxit-locator` に固定し、起動時に古いものを外してから読み込む
+- helper の終了時（SIGTERM、SIGINT、SIGHUP を含む）にスクリプトを外す
+- 送るのは JSON の文字列 1 つ。JavaScript の数値が D-Bus の int か double のどちらになるかを気にしなくて済む
+- 別のウィンドウがアクティブになったら、ポップアップを閉じて engine に `{"event":"hidden"}` を送る。同じウィンドウが動いたり大きさが変わったりしたら、置き直す
+- `figxit-helper --locate` で、KWin が知らせてくる内容を見られる
 
 ### 2. ポップアップを好きな座標に出す
 
@@ -161,13 +171,19 @@ Konsole はメニューバー、タブバー、ツールバー、スクロール
 - 最初は「テキスト領域はウィンドウの左下に寄っている」と仮定し、行数 × セルの高さと余白から逆算する
 - それでずれる場合は、AT-SPI で Konsole のテキスト領域の位置を取る。Wayland では画面上の座標は取れないが、ウィンドウからの相対位置なら取れる見込み（要検証）
 
+結果：macOS 版で Accessibility がないときの計算（`Geometry.fit` の `cg`）がそのまま使えた。テキスト領域の上端を「ウィンドウの下端 − 行数 × セルの高さ」とするもので、Konsole のメニューバーとタブバーを表示したままでも位置は合う。AT-SPI は使っていない。
+
 ### 4. セルの大きさ（ピクセル）
 
-engine の `parseShell`（`engine/src/geometry.ts`）は、シェルがターミナルに問い合わせたセルの大きさ、またはテキスト領域の大きさを使う。Konsole がこの問い合わせに答えるかは要検証。答えない場合は、ウィンドウの大きさを桁数で割って推定する。
+engine の `parseShell`（`engine/src/geometry.ts`）は、シェルがターミナルに問い合わせたセルの大きさ、またはテキスト領域の大きさを使う。
+
+結果：Konsole 25.12 は `CSI 16t` に答える。倍率 1.45 の画面で 8×18（論理ピクセル）。
 
 ### 5. HiDPI と分数スケーリング
 
-KWin の座標は論理ピクセルで、Qt も論理ピクセルで扱う。125% や 150% で位置がずれないかを確かめる。
+KWin の座標は論理ピクセルで、Qt も論理ピクセルで扱う。
+
+結果：倍率 1.45 の画面で、Qt の `QScreen::devicePixelRatio()` は 2.0 を返す。分数の倍率は KWin の `output.devicePixelRatio`（なければ `output.scale`）から受け取って使う。
 
 ### 6. helper の起動
 
@@ -223,9 +239,9 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 
 1. **準備**：upstream を remote に追加し、Bun を入れて、`engine` のテストが Linux で通るかを見る
 2. **engine だけ動かす**：`helper.sock` に届いた JSON をログに出すだけの仮の helper を作り、bash + Konsole で候補が届くことを確かめる
-3. **ポップアップを出す**：layer-shell で固定の位置にポップアップを出す。フォーカスを奪わないことを確かめる
-4. **カーソルの下に出す**：KWin スクリプトでウィンドウの位置を取り、カーソルの下に出す（画面 1 枚、Konsole のメニューバーとタブバーは非表示）
-5. **実用的にする**：Konsole のメニューバーやタブバーあり、複数の画面、スケーリング
+3. **ポップアップを出す**（済）：layer-shell で固定の位置にポップアップを出す。フォーカスを奪わないことを確かめる
+4. **カーソルの下に出す**（済）：KWin スクリプトでウィンドウの位置を取り、カーソルの下に出す
+5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45 は済）：画面の端、ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
 8. **本家に送る**：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
@@ -264,7 +280,7 @@ zsh は使わないので入れない。zsh のテストは実行しない。
 
 修正後は、通常の umask（0002）と日本語ロケールのままで、zsh のテストを除く単体テストがすべて通る。e2e も bash で、tmux の位置情報ありの 63 件、なしの 62 件がすべて通る。
 
-## helper-linux の現状（手順 3）
+## helper-linux の現状（手順 3・4）
 
 ビルドに必要なもの：`qt6-base-dev`、`liblayershellqtinterface-dev`、`cmake`、`g++`
 
@@ -272,7 +288,9 @@ zsh は使わないので入れない。zsh のテストは実行しない。
 helper-linux/dev.sh
 ```
 
-で helper と engine が起動する。新しい Konsole のタブで `source shell/bash/figxit.bash` すると補完が出る。今は画面の左上から 80,80 の固定の位置に出る（`FIGXIT_POPUP_AT=x,y` で変えられる）。
+で helper と engine が起動する。新しい Konsole のタブで `source shell/bash/figxit.bash` すると補完がカーソルの下に出る。helper は各配置を `~/.local/state/figxit/helper.log` に書く（`FIGXIT_DEBUG=1`）。KWin がないときは、画面の左上から 80,80 の固定の位置に出る（`FIGXIT_POPUP_AT=x,y` で変えられる）。
+
+`cmake --build helper-linux/build && helper-linux/build/placement_test` で配置の計算のテストが走る。
 
 確かめたこと（2026-11-16）：
 
@@ -282,11 +300,13 @@ helper-linux/dev.sh
 - 2 つ目の helper はロックファイルを見て起動しない。`quit` で正常に終わる
 - `--snapshot` で描いた見た目は macOS 版と同じ寸法。日本語も描ける。長い説明は「…」で切れる
 - Konsole（メニューバーとタブバーあり）で、ポップアップが出ている間も入力を続けられる。上下キーで選択が動く。フォーカスは奪わない
+- Konsole で、ポップアップがカーソルの下に出る。ウィンドウの大きさを変えても、画面をまたいで動かしても合う（倍率 1.45）
+- 大きさを変えた直後は、シェルが知らせる行数・桁数がまだ古いので、配置を諦めてポップアップを閉じることがある（ログで 734 回中 4 回）。次のキー入力で元に戻る
+- KWin スクリプトは helper の終了時に外れる
 
 ## 未検証・要確認
 
-- Konsole がセルの大きさの問い合わせに答えるか
-- AT-SPI で Konsole のテキスト領域の位置がウィンドウ相対で取れるか
-- KWin スクリプトから D-Bus で届く通知が、キー入力ごとの表示に間に合うか
+- tmux の中での位置（engine の tmux 用の計算がそのまま使えるか）
+- Konsole 以外のターミナル
+- 画面の下端で、ポップアップが行の上に回るか
 - layer-shell の margin を変えてポップアップを動かすときにちらつかないか
-- LayerShellQt の開発用パッケージ名（候補：`liblayershellqtinterface-dev`）

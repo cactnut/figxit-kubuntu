@@ -6,19 +6,20 @@
 //   figxit-helper --locate                          print the active window as the
 //                                                   desktop reports it
 //
-// The list opens under the cursor's cell in the active window, which the
-// desktop's window backend reports: a KWin script on KDE Plasma (backends.h).
+// This file starts the helper: the modes above, one helper at a time, the
+// socket, and the engine. What the helper does with the engine's requests is
+// in helper.cpp, and what depends on the desktop in backends.cpp.
 // FIGXIT_DEBUG=1 prints each placement. See docs/linux-port.md.
 
-#include "accessibility.h"
 #include "backends.h"
 #include "engine.h"
+#include "focus.h"
+#include "helper.h"
 #include "locator.h"
 #include "popup.h"
 #include "protocol.h"
 #include "server.h"
 #include "surface.h"
-#include "terminals.h"
 #include "theme.h"
 
 #include <QDir>
@@ -26,8 +27,6 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QPainter>
 #include <QScreen>
 #include <QSocketNotifier>
@@ -121,41 +120,6 @@ static int locate()
     return qApp->exec();
 }
 
-static bool debugging()
-{
-    static const bool on = qEnvironmentVariableIntValue("FIGXIT_DEBUG") > 0;
-    return on;
-}
-
-// Without a locator the list opens at a fixed place: 80,80 on the active
-// output, or FIGXIT_POPUP_AT=x,y.
-static Placement fixedPlacement()
-{
-    QPoint at(80, 80);
-    const QStringList parts = qEnvironmentVariable("FIGXIT_POPUP_AT").split(QLatin1Char(','));
-    if (parts.size() == 2) at = QPoint(parts.at(0).toInt(), parts.at(1).toInt());
-    Placement placement;
-    placement.source = QStringLiteral("fixed");
-    placement.x = at.x();
-    placement.yTop = placement.yBelow = at.y() - 2;
-    return placement;
-}
-
-static QScreen *screenFor(const WindowInfo &window)
-{
-    for (QScreen *screen : QGuiApplication::screens())
-        if (screen->name() == window.output) return screen;
-    return QGuiApplication::screenAt(window.client.center());
-}
-
-// The output's scale from the desktop, which knows fractional ones: Qt says
-// 2 on an output scaled to 1.45.
-static qreal scaleOf(const WindowInfo &window, QScreen *screen)
-{
-    if (window.scale > 0) return window.scale;
-    return screen ? screen->devicePixelRatio() : 1;
-}
-
 // The engine and the shells skip starting Figxit again while this file is
 // there. `figxit stop` puts it there; starting the helper takes it away.
 static void markStopped(const QString &socket, bool stopped)
@@ -176,191 +140,6 @@ static QString locatorName(const QString &socket)
     if (!qEnvironmentVariableIsSet("FIGXIT_HELPER_SOCK")) return QStringLiteral("figxit-locator");
     return QStringLiteral("figxit-locator-") + QString::number(qHash(socket), 16);
 }
-
-class Helper
-{
-public:
-    explicit Helper(const QString &socket)
-        : m_socket(socket)
-        , m_surface(makeSurface(&m_window))
-        , m_popup(&m_window, m_surface.get())
-        , m_server(socket, [this](const QByteArray &line) { return handle(line); })
-    {
-    }
-
-    bool start()
-    {
-        m_locator = startLocator(locatorName(m_socket));
-        if (m_locator) QObject::connect(m_locator.get(), &WindowLocator::changed, m_locator.get(), [this] { windowChanged(); });
-        else std::fprintf(stderr, "figxit-helper: no window backend for this desktop, the list opens at a fixed place\n");
-        m_focus = std::make_unique<AccessibleFocus>();
-        if (m_focus->start()) QObject::connect(m_focus.get(), &AccessibleFocus::focusChanged, m_focus.get(), [this] { focusChanged(); });
-        else m_focus.reset();
-        if (!m_server.start()) return false;
-        desktopPalette(); // asks the desktop portal early, on desktops without kdeglobals
-        m_engine = EngineSupervisor::create();
-        if (m_engine) {
-            markStopped(m_socket, false);
-            m_engine->start();
-        }
-        return true;
-    }
-
-private:
-    struct Shown {
-        std::optional<WindowInfo> window;
-        Grid grid;
-        QList<Item> items;
-        int selected = 0;
-        QString focus; // the focused element the list was placed under, when AT-SPI told where it is
-    };
-
-    QByteArray handle(const QByteArray &line)
-    {
-        const std::optional<Request> request = Request::parse(line);
-        if (!request) return statusReply(false, QStringLiteral("bad request"));
-        const QString &cmd = request->cmd;
-        if (cmd == QLatin1String("show")) {
-            if (!request->grid || !request->items) return statusReply(false, QStringLiteral("show needs grid and items"));
-            m_shown = Shown{m_locator ? m_locator->active() : std::nullopt, *request->grid, *request->items, request->selected, {}};
-            const QString why = place();
-            if (why.isEmpty()) return statusReply(true);
-            forget(true);
-            return statusReply(false, why);
-        }
-        if (cmd == QLatin1String("select")) {
-            if (!m_shown) return statusReply(false, QStringLiteral("nothing shown"));
-            m_shown->selected = request->selected;
-            m_popup.select(request->selected);
-            return statusReply(true);
-        }
-        if (cmd == QLatin1String("hide")) {
-            forget(false);
-            return statusReply(true);
-        }
-        if (cmd == QLatin1String("open")) return statusReply(true);
-        if (cmd == QLatin1String("quit")) {
-            markStopped(m_socket, true);
-            forget(false);
-            QTimer::singleShot(0, qApp, &QCoreApplication::quit);
-            return statusReply(true);
-        }
-        if (cmd == QLatin1String("probe")) return probe(request->grid);
-        return statusReply(false, QStringLiteral("unknown cmd"));
-    }
-
-    struct Located {
-        Fit fitted;
-        std::optional<QRectF> area; // the text area, when the app tells it over AT-SPI
-        qreal scale = 1;
-        QScreen *screen = nullptr;
-    };
-
-    // Where the cursor's cell is in this window: in the text area when the
-    // app tells it over AT-SPI, as in VS Code; else in the whole window.
-    Located locate(const Grid &grid, const WindowInfo &target)
-    {
-        Located located;
-        located.screen = screenFor(target);
-        located.scale = scaleOf(target, located.screen);
-        located.area = m_focus ? m_focus->surface(target.pid, target.client.topLeft()) : std::nullopt;
-        const QRectF base = located.area.value_or(QRectF(target.client));
-        located.fitted = fit(grid, base, located.area.has_value(), located.scale, terminalProfile(target.appId).devicePixels);
-        return located;
-    }
-
-    // The fields of ProbeReply in Protocol.swift that apply here: whether
-    // AT-SPI is on, for figxit doctor, and the active window and where the
-    // list would open in it, for debugging.
-    QByteArray probe(const std::optional<Grid> &grid)
-    {
-        QJsonObject reply{{QStringLiteral("axTrusted"), m_focus != nullptr}};
-        const std::optional<WindowInfo> window = m_locator ? m_locator->active() : std::nullopt;
-        if (window) {
-            reply.insert(QStringLiteral("app"), window->appId);
-            reply.insert(QStringLiteral("cgWindow"), rectJson(window->client));
-            reply.insert(QStringLiteral("scale"), scaleOf(*window, screenFor(*window)));
-            if (grid) {
-                const Fit fitted = locate(*grid, *window).fitted;
-                if (fitted.placement) reply.insert(QStringLiteral("placement"), placementJson(*fitted.placement));
-                reply.insert(QStringLiteral("split"), fitted.split);
-            }
-        }
-        return QJsonDocument(reply).toJson(QJsonDocument::Compact);
-    }
-
-    // Opens the list under the cursor's cell. Returns why when it cannot.
-    QString place()
-    {
-        if (!m_surface) return QStringLiteral("no way to place the list on this desktop");
-        if (!m_shown->window) {
-            // With a locator, no active window means no terminal to open under.
-            if (m_locator) return QStringLiteral("no terminal window");
-            m_popup.show(m_shown->items, m_shown->selected, fixedPlacement(), nullptr);
-            return {};
-        }
-        const WindowInfo &target = *m_shown->window;
-        const Grid &grid = m_shown->grid;
-        const Located located = locate(grid, target);
-        const std::optional<QRectF> &area = located.area;
-        const Fit &fitted = located.fitted;
-        m_shown->focus = area ? m_focus->focusedId() : QString();
-        if (debugging()) {
-            std::fprintf(stderr, "show app=%s client=%d,%d %dx%d scale=%.3f grid=%dx%d at %d,%d cellPx=%.1fx%.1f pane=%d",
-                         qPrintable(target.appId), target.client.x(), target.client.y(), target.client.width(), target.client.height(), located.scale,
-                         grid.cols, grid.rows, grid.col, grid.row, grid.cellPxW.value_or(0), grid.cellPxH.value_or(0), grid.pane);
-            if (area) std::fprintf(stderr, " area=%.1f,%.1f %.1fx%.1f", area->x(), area->y(), area->width(), area->height());
-        }
-        if (!fitted.placement) {
-            if (debugging()) std::fprintf(stderr, " -> %s\n", fitted.split ? "split" : "no place");
-            return fitted.split ? QStringLiteral("split pane") : QStringLiteral("no place for the list");
-        }
-        const QRect rect = m_popup.show(m_shown->items, m_shown->selected, *fitted.placement, located.screen);
-        if (debugging()) {
-            const Placement &p = *fitted.placement;
-            std::fprintf(stderr, " -> cell=%.2fx%.2f x=%.1f yTop=%.1f popup=%d,%d %dx%d\n", p.cellW, p.cellH, p.x, p.yTop, rect.x(), rect.y(),
-                         rect.width(), rect.height());
-        }
-        return {};
-    }
-
-    // Follows the terminal when it moves, and closes the list when another
-    // window becomes active.
-    void windowChanged()
-    {
-        if (!m_shown || !m_shown->window) return;
-        const std::optional<WindowInfo> active = m_locator->active();
-        if (!active || active->id != m_shown->window->id) return forget(true);
-        if (*active == *m_shown->window) return;
-        m_shown->window = active;
-        if (!place().isEmpty()) forget(true);
-    }
-
-    // Closes the list when focus moves inside the app, as when a click in
-    // VS Code leaves the terminal for the editor, like the macOS helper does.
-    // Typing does not move focus, so it does not close the list.
-    void focusChanged()
-    {
-        if (m_shown && !m_shown->focus.isEmpty() && m_focus->focusedId() != m_shown->focus) forget(true);
-    }
-
-    void forget(bool tellEngine)
-    {
-        m_shown.reset();
-        m_popup.hide();
-        if (tellEngine) m_server.broadcast(QByteArrayLiteral(R"({"event":"hidden"})"));
-    }
-
-    QString m_socket;
-    ListWindow m_window;
-    std::unique_ptr<PopupSurface> m_surface;
-    Popup m_popup;
-    Server m_server;
-    std::unique_ptr<WindowLocator> m_locator;
-    std::unique_ptr<AccessibleFocus> m_focus;
-    std::unique_ptr<EngineSupervisor> m_engine;
-    std::optional<Shown> m_shown;
-};
 
 int main(int argc, char **argv)
 {
@@ -390,10 +169,25 @@ int main(int argc, char **argv)
     quitOnSignals(app);
     if (locating) return locate();
 
-    Helper helper(socket);
-    if (!helper.start()) {
+    ListWindow window;
+    Helper::Backends backends{makeSurface(&window), startLocator(locatorName(socket)), startFocus()};
+    if (!backends.locator) std::fprintf(stderr, "figxit-helper: no window backend for this desktop, the list opens at a fixed place\n");
+    Helper helper(&window, std::move(backends));
+    Server server(socket, [&helper](const QByteArray &line) { return helper.handle(line); });
+    QObject::connect(&helper, &Helper::hidden, &server, [&server] { server.broadcast(QByteArrayLiteral(R"({"event":"hidden"})")); });
+    QObject::connect(&helper, &Helper::quitRequested, &app, [&socket] {
+        markStopped(socket, true);
+        QTimer::singleShot(0, qApp, &QCoreApplication::quit);
+    });
+    if (!server.start()) {
         std::fprintf(stderr, "figxit-helper: cannot listen at %s\n", qPrintable(socket));
         return 1;
+    }
+    desktopPalette(); // asks the desktop portal early, on desktops without kdeglobals
+    const std::unique_ptr<EngineSupervisor> engine = EngineSupervisor::create();
+    if (engine) {
+        markStopped(socket, false);
+        engine->start();
     }
     return app.exec();
 }

@@ -12,24 +12,32 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Network DBus Test)
 # Puts the list on KDE Plasma and the other Wayland desktops with layer-shell.
 find_package(LayerShellQt QUIET)
 
-add_executable(figxit-helper
-  src/main.cpp
-  src/protocol.cpp
-  src/server.cpp
+# The helper without what depends on the desktop, shared with the tests.
+add_library(figxit-core STATIC
+  src/helper.cpp
   src/popup.cpp
   src/placement.cpp
-  src/accessibility.cpp
-  src/engine.cpp
-  src/theme.cpp
+  src/protocol.cpp
   src/terminals.cpp
-  src/backends.cpp
+  src/theme.cpp
+  src/focus.h
   src/locator.h
+)
+target_compile_options(figxit-core PRIVATE -Wall -Wextra)
+target_link_libraries(figxit-core PUBLIC Qt6::Gui Qt6::DBus)
+
+add_executable(figxit-helper
+  src/main.cpp
+  src/server.cpp
+  src/engine.cpp
+  src/backends.cpp
+  src/accessibility.cpp
   src/locator/kwin.cpp
   src/resources.qrc
 )
 set_target_properties(figxit-helper PROPERTIES AUTORCC ON)
 target_compile_options(figxit-helper PRIVATE -Wall -Wextra)
-target_link_libraries(figxit-helper PRIVATE Qt6::Gui Qt6::Network Qt6::DBus)
+target_link_libraries(figxit-helper PRIVATE figxit-core Qt6::Network Qt6::DBus)
 if(LayerShellQt_FOUND)
   target_sources(figxit-helper PRIVATE src/surface/layershell.cpp)
   target_compile_definitions(figxit-helper PRIVATE FIGXIT_LAYER_SHELL)
@@ -39,6 +47,6 @@ else()
 endif()
 
 enable_testing()
-add_executable(placement_test tests/placement_test.cpp src/placement.cpp src/protocol.cpp src/terminals.cpp)
-target_link_libraries(placement_test PRIVATE Qt6::Core Qt6::Test)
+add_executable(placement_test tests/placement_test.cpp)
+target_link_libraries(placement_test PRIVATE figxit-core Qt6::Test)
 add_test(NAME placement COMMAND placement_test)

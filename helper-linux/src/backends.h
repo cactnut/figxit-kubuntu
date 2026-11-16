@@ -7,6 +7,7 @@
 #include <QString>
 #include <memory>
 
+class FocusTracker;
 class PopupSurface;
 class QWindow;
 class WindowLocator;
@@ -19,3 +20,7 @@ std::unique_ptr<WindowLocator> startLocator(const QString &name);
 // How to put the popup at a place on this display server, or null when the
 // helper has no way to.
 std::unique_ptr<PopupSurface> makeSurface(QWindow *window);
+
+// Follows keyboard focus over AT-SPI, which works on any Linux desktop, or
+// null when there is no AT-SPI bus.
+std::unique_ptr<FocusTracker> startFocus();

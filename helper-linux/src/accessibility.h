@@ -12,9 +12,10 @@
 // Only apps that expose their accessibility tree can be found. VS Code does
 // with "force-renderer-accessibility": true in ~/.vscode/argv.json.
 
+#include "focus.h"
+
 #include <QDBusConnection>
 #include <QHash>
-#include <QObject>
 #include <QPoint>
 #include <QRectF>
 #include <QString>
@@ -22,26 +23,18 @@
 
 class QDBusMessage;
 
-class AccessibleFocus : public QObject
+class AccessibleFocus : public FocusTracker
 {
     Q_OBJECT
 
 public:
     explicit AccessibleFocus(QObject *parent = nullptr);
 
+    // Connects to the AT-SPI bus. False when there is none.
     bool start();
 
-    // The text area with focus in the app with this pid, in global logical
-    // pixels, for a window whose client area starts at client.
-    std::optional<QRectF> surface(qint64 pid, QPoint client);
-
-    // Names the element with focus, to tell later whether focus moved.
-    // Empty when no element has focus.
-    QString focusedId() const;
-
-Q_SIGNALS:
-    // Another element has focus, or none has.
-    void focusChanged();
+    std::optional<QRectF> surface(qint64 pid, QPoint client) override;
+    QString focusedId() const override;
 
 private Q_SLOTS:
     void stateChanged(const QDBusMessage &message);

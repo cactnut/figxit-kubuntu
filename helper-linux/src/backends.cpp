@@ -1,4 +1,5 @@
 #include "backends.h"
+#include "accessibility.h"
 #include "locator.h"
 #include "locator/kwin.h"
 #include "surface.h"
@@ -57,4 +58,11 @@ std::unique_ptr<PopupSurface> makeSurface(QWindow *window)
 #endif
     std::fprintf(stderr, "figxit-helper: no way to place the list on %s\n", qPrintable(platform));
     return nullptr;
+}
+
+std::unique_ptr<FocusTracker> startFocus()
+{
+    auto focus = std::make_unique<AccessibleFocus>();
+    if (!focus->start()) return nullptr;
+    return focus;
 }

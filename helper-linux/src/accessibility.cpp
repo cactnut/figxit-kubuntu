@@ -21,7 +21,7 @@ static constexpr int documentDepth = 60;
 static const QString nullPath = QStringLiteral("/org/a11y/atspi/null");
 
 AccessibleFocus::AccessibleFocus(QObject *parent)
-    : QObject(parent)
+    : FocusTracker(parent)
     , m_bus(QString())
 {
 }

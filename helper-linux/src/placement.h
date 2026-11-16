@@ -36,3 +36,15 @@ Fit fit(const Grid &grid, const QRectF &base, bool focused, qreal scale, bool ph
 // The popup's place: under the cursor's line, above it when there is no room
 // below, and inside bounds when bounds is not empty.
 QRect popupRect(const Placement &placement, QSize size, const QRect &bounds);
+
+// The part of an accessible element that shows: clipped to its parent when the
+// parent is a scroll pane, and nothing when it is 100 pixels or less across.
+// A port of Geometry.visibleSurface.
+std::optional<QRectF> visibleSurface(const QRectF &frame, bool inScrollPane, const std::optional<QRectF> &parent);
+
+// Turns an element's extents, in window coordinates, into global logical
+// pixels. In Chromium, elements of a web document report device pixels while
+// the native view around the document reports logical ones; comparing the
+// document with that host gives the scale and the offset. Without a document,
+// extents are already logical and start at the window's client area.
+QRectF toGlobal(const QRectF &extents, const std::optional<QRectF> &document, const std::optional<QRectF> &host, QPointF client);

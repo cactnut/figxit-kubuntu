@@ -9,6 +9,7 @@
 // The list opens under the cursor's cell in the active window, which a KWin
 // script reports. FIGXIT_DEBUG=1 prints each placement. See docs/linux-port.md.
 
+#include "accessibility.h"
 #include "locator/kwin.h"
 #include "popup.h"
 #include "protocol.h"
@@ -165,6 +166,8 @@ public:
                 m_locator.reset();
             }
         }
+        m_focus = std::make_unique<AccessibleFocus>();
+        if (!m_focus->start()) m_focus.reset();
         return m_server.start();
     }
 
@@ -220,11 +223,14 @@ private:
         QScreen *screen = screenFor(target);
         const qreal scale = target.scale > 0 ? target.scale : screen ? screen->devicePixelRatio() : 1;
         const Grid &grid = m_shown->grid;
-        const Fit fitted = fit(grid, QRectF(target.client), false, scale, target.appId == QLatin1String("com.mitchellh.ghostty"));
+        // The text area when the app tells it over AT-SPI, as in VS Code; else the whole window.
+        const std::optional<QRectF> area = m_focus ? m_focus->surface(target.pid, target.client.topLeft()) : std::nullopt;
+        const Fit fitted = fit(grid, area.value_or(QRectF(target.client)), area.has_value(), scale, target.appId == QLatin1String("com.mitchellh.ghostty"));
         if (debugging()) {
             std::fprintf(stderr, "show app=%s client=%d,%d %dx%d scale=%.3f grid=%dx%d at %d,%d cellPx=%.1fx%.1f pane=%d",
                          qPrintable(target.appId), target.client.x(), target.client.y(), target.client.width(), target.client.height(), scale,
                          grid.cols, grid.rows, grid.col, grid.row, grid.cellPxW.value_or(0), grid.cellPxH.value_or(0), grid.pane);
+            if (area) std::fprintf(stderr, " area=%.1f,%.1f %.1fx%.1f", area->x(), area->y(), area->width(), area->height());
         }
         if (!fitted.placement) {
             if (debugging()) std::fprintf(stderr, " -> %s\n", fitted.split ? "split" : "no place");
@@ -263,6 +269,7 @@ private:
     Popup m_popup;
     Server m_server;
     std::unique_ptr<KWinLocator> m_locator;
+    std::unique_ptr<AccessibleFocus> m_focus;
     std::optional<Shown> m_shown;
 };
 

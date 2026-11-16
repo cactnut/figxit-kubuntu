@@ -10,6 +10,8 @@ class PlacementTest : public QObject
     Q_OBJECT
 
     const QRectF window{100, 80, 987, 777};
+    const QRectF textArea{0, -245, 580, 689};
+    const QRectF scrollArea{0, 91, 597, 353};
 
     static Grid grid(const char *json)
     {
@@ -98,6 +100,52 @@ private Q_SLOTS:
     {
         const Placement placement{QStringLiteral("cg"), {}, 8, 20, 80, 58, 78};
         QCOMPARE(popupRect(placement, QSize(260, 98), QRect()), QRect(80, 80, 260, 98));
+    }
+
+    // visibleSurface, from GeometryTests.swift.
+    void textAreaIsClippedToItsScrollPane()
+    {
+        QCOMPARE(visibleSurface(textArea, true, scrollArea), QRectF(0, 91, 580, 353));
+        QCOMPARE(visibleSurface(QRectF(0, -1148, 2540, 2593), true, QRectF(0, 98, 2557, 1333)), QRectF(0, 98, 2540, 1333));
+    }
+
+    void onlyAScrollPaneParentClipsTheSurface()
+    {
+        QCOMPARE(visibleSurface(textArea, false, scrollArea), textArea);
+        QCOMPARE(visibleSurface(window, true, std::nullopt), window);
+    }
+
+    void surfaceThatMissesItsScrollPaneIsSkipped()
+    {
+        QVERIFY(!visibleSurface(textArea, true, QRectF(1000, 91, 597, 353)));
+        QVERIFY(!visibleSurface(textArea, true, QRectF(0, 444, 597, 353)));
+        QVERIFY(!visibleSurface(textArea, true, QRectF(0, 356.65, 597, 87.35)));
+    }
+
+    void surfaceOf100PixelsOrLessIsSkipped()
+    {
+        QVERIFY(!visibleSurface(QRectF(0, 0, 100, 689), false, std::nullopt));
+        QVERIFY(!visibleSurface(QRectF(0, 0, 580, 100), false, std::nullopt));
+        QCOMPARE(visibleSurface(textArea, true, QRectF(479, 91, 597, 353)), QRectF(479, 91, 101, 353));
+    }
+
+    void webDocumentPixelsBecomeLogicalPixels()
+    {
+        // VS Code on an output scaled to 1.45: the terminal's canvas, the web
+        // document, and the native view that holds it, as AT-SPI reports them.
+        const QRectF canvas(374, 1118, 1611, 595);
+        const QRectF global = toGlobal(canvas, QRectF(23, 14, 2161, 1774), QRectF(16, 10, 1490, 1223), QPointF(1500, 900));
+        const qreal scaleX = 2161.0 / 1490;
+        const qreal scaleY = 1774.0 / 1223;
+        QVERIFY(qAbs(global.x() - (1500 + 351 / scaleX)) < 0.001);
+        QVERIFY(qAbs(global.y() - (900 + 1104 / scaleY)) < 0.001);
+        QVERIFY(qAbs(global.width() - 1611 / scaleX) < 0.001);
+        QVERIFY(qAbs(scaleX - 1.45) < 0.001 && qAbs(scaleY - 1.45) < 0.001);
+    }
+
+    void nativeExtentsStartAtTheClientArea()
+    {
+        QCOMPARE(toGlobal(QRectF(0, 60, 900, 700), std::nullopt, std::nullopt, QPointF(100, 50)), QRectF(100, 110, 900, 700));
     }
 };
 

@@ -72,6 +72,24 @@ Fit fit(const Grid &grid, const QRectF &base, bool focused, qreal scale, bool ph
     return {placement, false};
 }
 
+std::optional<QRectF> visibleSurface(const QRectF &frame, bool inScrollPane, const std::optional<QRectF> &parent)
+{
+    QRectF visible = frame;
+    if (inScrollPane && parent) visible = frame.intersected(*parent);
+    if (visible.width() > 100 && visible.height() > 100) return visible;
+    return std::nullopt;
+}
+
+QRectF toGlobal(const QRectF &extents, const std::optional<QRectF> &document, const std::optional<QRectF> &host, QPointF client)
+{
+    if (!document || !host || host->width() <= 0 || host->height() <= 0) return extents.translated(client);
+    const qreal scaleX = document->width() / host->width();
+    const qreal scaleY = document->height() / host->height();
+    if (scaleX <= 0 || scaleY <= 0) return extents.translated(client);
+    const QPointF offset = extents.topLeft() - document->topLeft();
+    return QRectF(client + QPointF(offset.x() / scaleX, offset.y() / scaleY), QSizeF(extents.width() / scaleX, extents.height() / scaleY));
+}
+
 QRect popupRect(const Placement &placement, QSize size, const QRect &bounds)
 {
     qreal top = placement.yBelow + 2;

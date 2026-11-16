@@ -122,7 +122,8 @@ helper-linux/
     protocol.{h,cpp}         # Protocol.swift と同じ型
     popup.{h,cpp}            # 描画
     theme.{h,cpp}            # 色。kdeglobals から読む
-    placement.{h,cpp}        # 配置の計算（Geometry.fit の移植、純粋関数）
+    placement.{h,cpp}        # 配置の計算（Geometry.fit と visibleSurface の移植、純粋関数）
+    accessibility.{h,cpp}    # AT-SPI でフォーカスのある要素からテキスト領域を探す（VS Code）
     surface.h                # PopupSurface
     surface/layershell.{h,cpp}
     locator.h                # WindowLocator
@@ -171,7 +172,18 @@ Konsole はメニューバー、タブバー、ツールバー、スクロール
 - 最初は「テキスト領域はウィンドウの左下に寄っている」と仮定し、行数 × セルの高さと余白から逆算する
 - それでずれる場合は、AT-SPI で Konsole のテキスト領域の位置を取る。Wayland では画面上の座標は取れないが、ウィンドウからの相対位置なら取れる見込み（要検証）
 
-結果：macOS 版で Accessibility がないときの計算（`Geometry.fit` の `cg`）がそのまま使えた。テキスト領域の上端を「ウィンドウの下端 − 行数 × セルの高さ」とするもので、Konsole のメニューバーとタブバーを表示したままでも位置は合う。AT-SPI は使っていない。
+結果：macOS 版で Accessibility がないときの計算（`Geometry.fit` の `cg`）がそのまま使えた。テキスト領域の上端を「ウィンドウの下端 − 行数 × セルの高さ」とするもので、Konsole のメニューバーとタブバーを表示したままでも位置は合う。Konsole では AT-SPI は使っていない。
+
+### 3-2. VS Code の統合ターミナル
+
+ターミナルはウィンドウの一部（下のパネル）にしかなく、パネルの位置はサイドバーの幅などで変わる。macOS 版と同じく、アクセシビリティ（Linux では AT-SPI）でテキスト領域を探す（`accessibility.cpp`）。
+
+- VS Code は、そのままでは AT-SPI にウィンドウの枠しか出さない。`~/.vscode/argv.json` に `"force-renderer-accessibility": true` を書くと中身も出す（Linux だけで使える設定）。VS Code がスクリーンリーダー向けのモードに切り替わらないよう、settings.json に `"editor.accessibilitySupport": "off"` も書いておく
+- AT-SPI のフォーカスの通知（`object:state-changed:focused`）を受けて、フォーカスのある要素を覚えておく。ポップアップを出すときに、その要素から親を 3 段までたどり、100×100 より大きい最初の要素をテキスト領域とする（macOS 版の `axSurface` と同じ）。VS Code では、カーソル位置にある入力欄から xterm.js の canvas にたどり着く
+- Chromium は、Web の中身の座標を実ピクセルで、外側のネイティブの枠を論理ピクセルで返す（倍率 1.45 の画面で、`document web` が 2161 幅、枠が 1490 幅）。`document web` と枠を比べて、倍率とずれを求める（`toGlobal`）
+- KWin の `clientGeometry` は、VS Code の影を除いた大きさで、AT-SPI の枠と一致する
+- 追加のライブラリは使わず、Qt の D-Bus で AT-SPI のバスに直接つなぐ
+- 領域が見つからないアプリ（Konsole など）は、これまでどおりウィンドウ全体から計算する
 
 ### 4. セルの大きさ（ピクセル）
 
@@ -241,7 +253,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 2. **engine だけ動かす**：`helper.sock` に届いた JSON をログに出すだけの仮の helper を作り、bash + Konsole で候補が届くことを確かめる
 3. **ポップアップを出す**（済）：layer-shell で固定の位置にポップアップを出す。フォーカスを奪わないことを確かめる
 4. **カーソルの下に出す**（済）：KWin スクリプトでウィンドウの位置を取り、カーソルの下に出す
-5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45 は済）：画面の端、ほかのターミナル
+5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code は済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
 8. **本家に送る**：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
@@ -303,10 +315,12 @@ helper-linux/dev.sh
 - Konsole で、ポップアップがカーソルの下に出る。ウィンドウの大きさを変えても、画面をまたいで動かしても合う（倍率 1.45）
 - 大きさを変えた直後は、シェルが知らせる行数・桁数がまだ古いので、配置を諦めてポップアップを閉じることがある（ログで 734 回中 4 回）。次のキー入力で元に戻る
 - KWin スクリプトは helper の終了時に外れる
+- VS Code 1.145（Wayland、`com.microsoft.VSCode`）の統合ターミナルで、ポップアップがカーソルの下に出る（2026-11-17）。xterm.js はセルの大きさを 7×23（論理ピクセル）と答える。ログでは 1299 回の配置すべてで AT-SPI からテキスト領域が取れ、ウィンドウを動かしても付いていった
 
 ## 未検証・要確認
 
-- tmux の中での位置（engine の tmux 用の計算がそのまま使えるか）
-- Konsole 以外のターミナル
-- 画面の下端で、ポップアップが行の上に回るか
+- tmux の中での位置（engine の tmux 用の計算がそのまま使えるか）。優先度は低い
+- Konsole と VS Code 以外のターミナル、エディタ（Cursor など VS Code 系は同じ方法で動く見込み）
+- helper の起動より前から VS Code のターミナルにフォーカスがあると、フォーカスの通知が来るまで領域が分からない。ターミナルをクリックし直せば直る
+- VS Code でアクセシビリティを有効にしたことによる重さ
 - layer-shell の margin を変えてポップアップを動かすときにちらつかないか

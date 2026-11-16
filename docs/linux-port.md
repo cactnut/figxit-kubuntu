@@ -285,7 +285,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
-8. **本家に送る**（テストの直しは送った）：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
+8. **本家に送る**（テストの直しとユーザー spec の直しは送った）：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
 
 ## 本家との関係
 
@@ -295,7 +295,8 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 - #35 にコメントするのは、Linux 用 helper を本家に入れたいかを聞くとき。本家にない言語とビルドの仕組みを持ち込むので、作ってから出さずに先に聞く。PR ① と ② がマージされてからにする
 - 本家に送る PR
   - ①：[#79](https://github.com/en3sis/figxit/pull/79)（2026-11-17 に送った）、ブランチは `fix/portable-tests`。中身は `test/linux-portable` と同じで、コミットの頭を本家に合わせて `fix:` にした。日本語ロケールと make 4 でテストが通るようにする
-  - ②（まだ送っていない）：`fix/user-specs-private-group`。送る前に `specs.ts` のコメントを消し、main にだけある追加のテスト（`63c9834`）を入れる
+  - ②：[#80](https://github.com/en3sis/figxit/pull/80)（2026-11-17 に送った）、ブランチは `fix/user-specs-own-group`。中身は `fix/user-specs-private-group` に main にだけあった追加のテスト（`63c9834`）を足して 1 コミットにし、`specs.ts` とテストのコメントを消したもの。消したコメントの説明は、コミットメッセージと PR の説明文に書いた
+- PR の説明文やコメントには、ローカルのユーザー名やパスを書かない（`<user>` などに置き換える）。#80 では一度書いてしまい、説明文を直して古い版を履歴から消した
 - ブランチの使い方
   - `main`：本家の `main` に Linux 対応を足したもの
   - 本家に送る変更：`upstream/main` から切ったブランチで作る（Linux 用 helper を混ぜないため）

@@ -110,23 +110,28 @@ struct TerminalProfile {
 };
 ```
 
-### ディレクトリ構成（案）
+### ディレクトリ構成
+
+（未）が付いたものはまだない。
 
 ```
 helper-linux/
   CMakeLists.txt
+  dev.sh                     # make dev の Linux 版。helper と engine を起動する
   src/
     main.cpp
     server.{h,cpp}           # helper.sock、JSON の 1 行ずつの読み書き
-    protocol.h               # Protocol.swift と同じ型
-    placement.{h,cpp}        # 配置の計算（純粋関数）
+    protocol.{h,cpp}         # Protocol.swift と同じ型
     popup.{h,cpp}            # 描画
+    theme.{h,cpp}            # 色。kdeglobals から読む
+    surface.h                # PopupSurface
     surface/layershell.{h,cpp}
-    locator/kwin.{h,cpp}
-    locator/kwin/active-window.js   # KWin に読み込ませるスクリプト
-    terminal/konsole.{h,cpp}
+    placement.{h,cpp}        # 配置の計算（純粋関数）（未）
+    locator/kwin.{h,cpp}     # （未）
+    locator/kwin/active-window.js   # KWin に読み込ませるスクリプト（未）
+    terminal/konsole.{h,cpp} # （未）
   tests/
-    placement_test.cpp
+    placement_test.cpp       # （未）
 ```
 
 ## 技術的な課題と対応案
@@ -173,6 +178,16 @@ engine は helper が動いていないとき `open -g`（macOS のコマンド�
 - メニューバーのアイコン → トレイアイコン（StatusNotifierItem、`QSystemTrayIcon`）
 - 設定画面、About、`figxit doctor` の Linux 用の表示
 - 自動アップデート（Sparkle）は対応しない
+- アイコンの中の記号（今は色付きの四角だけ。macOS 版は SF Symbols と SVG）
+
+### 8. Qt のプラットフォームテーマ
+
+helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFORMTHEME=generic` で動かす。
+
+- KDE のテーマは読み込みに時間がかかり、アプリ名の設定ファイル（`~/.config/figxit-helperrc`）を作ろうとする。書き込めないとエラーのダイアログを出し、閉じるまで起動が止まる。サンドボックスでは 16 秒止まった
+- generic なら、ソケットが開くまで 26 ms
+- 色は `kdeglobals` の `[Colors:Window]` と `[Colors:Selection]` から読む（`theme.cpp`）。ポップアップを開くたびに読み直すので、ダーク・ライトを切り替えても次に開いたときに反映される
+- ほかのデスクトップ環境では、`theme.cpp` に色の読み方を足す
 
 ## engine と shell の変更点（本家に送る候補）
 
@@ -248,6 +263,25 @@ zsh は使わないので入れない。zsh のテストは実行しない。
 - テスト 3 件：bash のバージョンは `BASH_VERSINFO` で調べる。versioned specs の子プロセスには環境変数を明示的に渡す。make の出力はどちらの引用符でも通す
 
 修正後は、通常の umask（0002）と日本語ロケールのままで、zsh のテストを除く単体テストがすべて通る。e2e も bash で、tmux の位置情報ありの 63 件、なしの 62 件がすべて通る。
+
+## helper-linux の現状（手順 3）
+
+ビルドに必要なもの：`qt6-base-dev`、`liblayershellqtinterface-dev`、`cmake`、`g++`
+
+```bash
+helper-linux/dev.sh
+```
+
+で helper と engine が起動する。新しい Konsole のタブで `source shell/bash/figxit.bash` すると補完が出る。今は画面の左上から 80,80 の固定の位置に出る（`FIGXIT_POPUP_AT=x,y` で変えられる）。
+
+確かめたこと（2026-11-16）：
+
+- layer-shell の surface が overlay 層、左上に anchor、キーボード入力なし（`set_keyboard_interactivity(0)`）、入力範囲は空（クリックは下のウィンドウに届く）で作られる
+- 候補の数が変わると高さが変わる。hide で surface が破棄される
+- tmux の中の bash で本物の engine とつなぎ、`make de` で 2 件のポップアップが出て、Esc で閉じる
+- 2 つ目の helper はロックファイルを見て起動しない。`quit` で正常に終わる
+- `--snapshot` で描いた見た目は macOS 版と同じ寸法。日本語も描ける。長い説明は「…」で切れる
+- Konsole（メニューバーとタブバーあり）で、ポップアップが出ている間も入力を続けられる。上下キーで選択が動く。フォーカスは奪わない
 
 ## 未検証・要確認
 

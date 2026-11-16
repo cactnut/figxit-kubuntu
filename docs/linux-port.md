@@ -75,7 +75,7 @@ engine と helper の間のプロトコルは macOS 版と同じものを使う�
 | Popup | 候補リストを描く | Qt（共通） | — | — |
 | WindowLocator | 前面のウィンドウの位置、pid、出力先の画面を取る | デスクトップ環境 | KWin スクリプト + D-Bus | GNOME：Shell 拡張、Sway：`swaymsg -t get_tree`、Hyprland：`hyprctl activewindow`、X11：EWMH |
 | Surface | ポップアップを好きな座標に、フォーカスを奪わずに出す | Wayland プロトコル | layer-shell（LayerShellQt） | GNOME：別の方法が必要、X11：override-redirect ウィンドウ |
-| TerminalProfile | ウィンドウの中でテキスト領域がどこにあるかを補正する | ターミナル | Konsole | ターミナルごとに追加 |
+| TerminalProfile | ターミナルごとの癖を補正する（セルの大きさの単位など） | ターミナル | Ghostty（macOS 版から移植） | ターミナルごとに表に 1 行 |
 
 バックエンドは起動時に `backends.cpp` で選ぶ。`Helper` は `WindowLocator` と `PopupSurface` だけを知っていて、KWin や layer-shell を直接は使わない。
 
@@ -110,9 +110,9 @@ public:
 };
 
 struct TerminalProfile {
-    // ウィンドウ内でのテキスト領域（ウィンドウ相対）
-    virtual QRect textArea(const WindowInfo &window, const Grid &grid) const = 0;
+    bool devicePixels = false;  // セルの大きさを実ピクセルで答える
 };
+TerminalProfile terminalProfile(const QString &appId);
 ```
 
 ### ディレクトリ構成
@@ -128,6 +128,7 @@ helper-linux/
     popup.{h,cpp}            # 描画
     theme.{h,cpp}            # 色。kdeglobals から読む
     placement.{h,cpp}        # 配置の計算（Geometry.fit と visibleSurface の移植、純粋関数）
+    terminals.{h,cpp}        # ターミナルごとの補正（TerminalProfile）。app id で引く
     accessibility.{h,cpp}    # AT-SPI でフォーカスのある要素からテキスト領域を探す（VS Code）
     backends.{h,cpp}         # デスクトップごとの WindowLocator と PopupSurface を選ぶ
     surface.h                # PopupSurface
@@ -140,7 +141,7 @@ helper-linux/
     placement_test.cpp       # GeometryTests.swift の移植と Linux 用のテスト
 ```
 
-ターミナルごとの補正（TerminalProfile）は、Konsole では要らなかった（下の 3）。必要なターミナルが出てきたら足す。
+ターミナルごとの補正（TerminalProfile）は、Konsole では要らなかった（下の 3）。`terminals.{h,cpp}` の表に app id ごとに書く。いまは Ghostty（`com.mitchellh.ghostty`）の「セルの大きさを実ピクセルで答える」だけで、これは macOS 版の `Geometry.physicalPixels` の移植（Linux の Ghostty では未確認）。必要なターミナルが出てきたら、この表に 1 行足す。
 
 ## 技術的な課題と対応案
 
@@ -156,10 +157,11 @@ Wayland では、アプリが他のウィンドウの位置を取れない。
 実装（`locator/kwin.cpp`）：
 
 - helper は D-Bus に `/Locator`（`org.figxit.Locator`）を出し、スクリプトは helper の一意な D-Bus 名（`:1.234` の形）に `callDBus` する。決まった名前を取らなくて済む
-- スクリプトは `$XDG_RUNTIME_DIR/figxit-locator.js` に書き出して読み込ませる（書けないときは一時フォルダ）。名前は `figxit-locator` に固定し、起動時に古いものを外してから読み込む
+- スクリプトは `$XDG_RUNTIME_DIR/figxit-locator.js` に書き出して読み込ませる。共有の一時フォルダには書かない（ほかのユーザーが同じ名前のファイルを先に置くと、それを KWin に読み込ませることになる）。`XDG_RUNTIME_DIR` がないときは Qt が自分専用のフォルダを作り、それも使えなければ KWin を使わない。名前は `figxit-locator` に固定し、起動時に古いものを外してから読み込む
 - helper の終了時（SIGTERM、SIGINT、SIGHUP を含む）にスクリプトを外す
 - 送るのは JSON の文字列 1 つ。JavaScript の数値が D-Bus の int か double のどちらになるかを気にしなくて済む
 - 別のウィンドウがアクティブになったら、ポップアップを閉じて engine に `{"event":"hidden"}` を送る。同じウィンドウが動いたり大きさが変わったりしたら、置き直す
+- KWin がアクティブなウィンドウを知らせていない（デスクトップをクリックした後など）ときの `show` は、`no terminal window` で失敗にする（macOS 版と同じ）。固定の位置に出すのは、locator がないときだけ
 - `figxit-helper --locate` で、KWin が知らせてくる内容を見られる
 
 ### 2. ポップアップを好きな座標に出す
@@ -186,7 +188,7 @@ Konsole はメニューバー、タブバー、ツールバー、スクロール
 
 - VS Code は、そのままでは AT-SPI にウィンドウの枠しか出さない。`~/.vscode/argv.json` に `"force-renderer-accessibility": true` を書くと中身も出す（Linux だけで使える設定）。VS Code がスクリーンリーダー向けのモードに切り替わらないよう、settings.json に `"editor.accessibilitySupport": "off"` も書いておく
 - AT-SPI のフォーカスの通知（`object:state-changed:focused`）を受けて、フォーカスのある要素を覚えておく。ポップアップを出すときに、その要素から親を 3 段までたどり、100×100 より大きい最初の要素をテキスト領域とする（macOS 版の `axSurface` と同じ）。VS Code では、カーソル位置にある入力欄から xterm.js の canvas にたどり着く
-- Chromium は、Web の中身の座標を実ピクセルで、外側のネイティブの枠を論理ピクセルで返す（倍率 1.45 の画面で、`document web` が 2161 幅、枠が 1490 幅）。`document web` と枠を比べて、倍率とずれを求める（`toGlobal`）
+- Chromium は、Web の中身の座標を実ピクセルで、外側のネイティブの枠を論理ピクセルで返す（倍率 1.45 の画面で、`document web` が 2161 幅、枠が 1490 幅）。`document web` と枠の大きさを比べて倍率を求める（`toGlobal`）。位置は `document web` からのずれだけを使い、`document web` の左上を KWin の `clientGeometry` の左上とみなす（AT-SPI のウィンドウ座標は影の外側から始まるため）。VS Code が自前のタイトルバーを使い、`document web` がウィンドウ全体を覆っているときに成り立つ
 - KWin の `clientGeometry` は、VS Code の影を除いた大きさで、AT-SPI の枠と一致する
 - 追加のライブラリは使わず、Qt の D-Bus で AT-SPI のバスに直接つなぐ
 - D-Bus の呼び出しは GUI スレッドで待つので、たどった結果（テキスト領域、scroll pane、`document web`、枠の 4 つの要素）をフォーカスが移るまで覚えておく。2 回目からの `show` では、それぞれの位置を聞くだけ（3〜4 回）で済む。要素がなくなったり 100×100 以下になったりしたら、たどり直す
@@ -225,7 +227,8 @@ helper は macOS 版と同じく engine を起動し、落ちたら起動し直�
 ### 7. 後回しにするもの
 
 - メニューバーのアイコン → トレイアイコン（StatusNotifierItem、`QSystemTrayIcon`）
-- 設定画面、About、`figxit doctor` の Linux 用の表示
+- 設定画面、About
+- `figxit doctor` の Linux 用の表示のうち、accessibility の行は済み。helper は `probe` に `axTrusted`（AT-SPI につながったか）、アクティブなウィンドウ、grid を渡されたときの配置を返し、doctor は Linux では AT-SPI の説明を出す。ほかの行（Figxit Setup の案内など）はまだ macOS 向け
 - 自動アップデート（Sparkle）は対応しない
 - アイコンの中の記号（今は色付きの四角だけ。macOS 版は SF Symbols と SVG）
 
@@ -236,7 +239,8 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 - KDE のテーマは読み込みに時間がかかり、アプリ名の設定ファイル（`~/.config/figxit-helperrc`）を作ろうとする。書き込めないとエラーのダイアログを出し、閉じるまで起動が止まる。サンドボックスでは 16 秒止まった
 - generic なら、ソケットが開くまで 26 ms
 - 色は `kdeglobals` の `[Colors:Window]` と `[Colors:Selection]` から読む（`theme.cpp`）。ポップアップを開くたびに読み直すので、ダーク・ライトを切り替えても次に開いたときに反映される
-- ほかのデスクトップ環境では、`theme.cpp` に色の読み方を足す
+- `kdeglobals` に色がないとき（KDE 以外のデスクトップなど）は、xdg-desktop-portal の `org.freedesktop.appearance` `color-scheme` を見て、Breeze のライトかダークを使う。portal には待たずに問い合わせ（`ReadOne`、なければ `Read`）、答えは次に開いたときから使う。helper の起動時に一度問い合わせておくので、最初のポップアップから合う
+- 色をもっと細かく合わせたいデスクトップ環境では、`theme.cpp` に色の読み方を足す
 
 ## engine と shell の変更点（本家に送る候補）
 
@@ -247,7 +251,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 | `engine/src/helper.ts` | helper の起動に `open -g` を使っている（フォークでは `launch.ts` で直した） |
 | `engine/src/paths.ts` | `bundlePath`、`appPath`、`specsDir` が `.app/Contents/MacOS` の構成を前提にしている |
 | `engine/src/geometry.ts` | Ghostty のパスが `/Applications/Ghostty.app/...` 決め打ち |
-| `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する。PATH の候補に `/opt/homebrew/bin` |
+| `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する（フォークでは Linux で AT-SPI の説明を出すよう直した）。PATH の候補に `/opt/homebrew/bin` |
 | `engine/src/specs.ts` の `trusted()` | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される |
 | `shell/*/figxit.*`、`shell/*/connect.*` | engine の場所が `$FIGXIT_APP/Contents/MacOS/figxit-engine` 決め打ち |
 | `shell/zsh/connect.zsh` | helper の起動に `open -g`（フォークでは `figxit-engine start` に頼むよう直した。zsh がないので動作は未確認） |
@@ -366,3 +370,5 @@ helper-linux/dev.sh
 - helper の起動より前から VS Code のターミナルにフォーカスがあると、フォーカスの通知が来るまで領域が分からない。ターミナルをクリックし直せば直る
 - VS Code でアクセシビリティを有効にしたことによる重さ
 - layer-shell の margin を変えてポップアップを動かすときにちらつかないか
+- VS Code でネイティブのタイトルバー（`"window.titleBarStyle": "native"`）を使うとき。メニューバーが `document web` の上に入ると、その高さだけポップアップが上にずれるかもしれない（`toGlobal` の前提が崩れる）
+- KDE 以外のデスクトップでの色（portal の `color-scheme`）。Kubuntu では portal がダークと答え、`kdeglobals` がないときにダークの色になることを確かめた（2026-11-17）

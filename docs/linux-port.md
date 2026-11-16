@@ -23,9 +23,9 @@
 
 1. **自分の環境で動くことを優先する。** 他の環境は「追加しやすい構造」までにとどめ、実装もテストもしない。
 2. **環境に依存する部分を分けておく。** デスクトップ環境、Wayland プロトコル、ターミナルに依存するコードはそれぞれバックエンドとして切り出す。他の環境に対応するときは、バックエンドを 1 つ足すだけで済むようにする。
-3. **本家への PR は 2 段階に分ける。**
-   - engine と shell を OS に依存しない形にする変更は、本家に送る。小さく、mac 側の挙動を変えない変更にする
-   - Linux 用 helper は当面フォーク側で持つ。本家に入れたいかは、engine と shell の PR がマージされてから [#35](https://github.com/en3sis/figxit/issues/35) で聞く（下の「本家との関係」）
+3. **本家に送る。** engine と shell の小さな直しも、Linux 用 helper も、本家に PR で送る（下の「本家との関係」）。
+   - mac 側の挙動は変えない
+   - 送るときはコメントを消す（本家のコードにはコメントがない）。理由は `helper-linux/README.md` と PR の説明文に書く
 4. **本家に追従し続ける。** 本家は engine と shell の修正が頻繁に入る。本家のファイルへの変更は最小限にして、upstream の取り込みで衝突しにくくする。
 
 ## 全体の構成
@@ -285,17 +285,19 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
-8. **本家に送る**（テストの直しとユーザー spec の直しは送った）：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
+8. **本家に送る**（テストの直し、ユーザー spec の直し、Linux 対応の本体）：本家の `main` から切ったブランチで PR にする
 
 ## 本家との関係
 
 - [#35](https://github.com/en3sis/figxit/issues/35) は本家のオーナーが立てた issue（ラベルは `enhancement` と `area: install`）
 - 本家に PR を出す人は、自分で issue を立ててすぐ PR を出すか、issue なしで PR を出している。他人の issue に「やります」とコメントする習慣はない（2026-11-17 に見た）
-- そのため #35 には先にコメントしない。PR の説明文で #35 に触れ、GitHub が #35 に PR を表示するのに任せる
-- #35 にコメントするのは、Linux 用 helper を本家に入れたいかを聞くとき。本家にない言語とビルドの仕組みを持ち込むので、作ってから出さずに先に聞く。PR ① と ② がマージされてからにする
+- そのため #35 にはコメントせず、Linux 対応の本体も聞かずに PR で送る。#79 と #80 だけでは、なぜ Linux で確かめたのかが本家に伝わらない。PR の説明文で #35 に触れ、GitHub が #35 に PR を表示するのに任せる
 - 本家に送る PR
   - ①：[#79](https://github.com/en3sis/figxit/pull/79)（2026-11-17 に送った）、ブランチは `fix/portable-tests`。中身は `test/linux-portable` と同じで、コミットの頭を本家に合わせて `fix:` にした。日本語ロケールと make 4 でテストが通るようにする
   - ②：[#80](https://github.com/en3sis/figxit/pull/80)（2026-11-17 に送った）、ブランチは `fix/user-specs-own-group`。中身は `fix/user-specs-private-group` に main にだけあった追加のテスト（`63c9834`）を足して 1 コミットにし、`specs.ts` とテストのコメントを消したもの。消したコメントの説明は、コミットメッセージと PR の説明文に書いた
+  - ③：[#81](https://github.com/en3sis/figxit/pull/81)（2026-11-17 に送った）、ブランチは `feat/linux-kde-wayland`。Linux 対応の本体で、`helper-linux/`、`launch.ts` まわり、doctor の AT-SPI の説明、zsh の起動、英語の `helper-linux/README.md`、本家の README の Linux の節。コミットは 2 つ（engine と zsh、helper と README）
+    - フォークの main とは 2 点ちがう。コメントを消したこと（理由は `helper-linux/README.md` に移した）と、zsh が macOS では `open -g` のまま、ほかの OS でだけ `figxit-engine start` を使うこと（関数 `_figxit_launch`）。フォークの main は、どの OS でも `figxit-engine start` を使う
+    - 本家に入ったら、フォークの main は本家の版に合わせる
 - PR の説明文やコメントには、ローカルのユーザー名やパスを書かない（`<user>` などに置き換える）。#80 では一度書いてしまい、説明文を直して古い版を履歴から消した
 - ブランチの使い方
   - `main`：本家の `main` に Linux 対応を足したもの

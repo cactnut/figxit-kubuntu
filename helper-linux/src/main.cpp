@@ -10,6 +10,7 @@
 // script reports. FIGXIT_DEBUG=1 prints each placement. See docs/linux-port.md.
 
 #include "accessibility.h"
+#include "engine.h"
 #include "locator/kwin.h"
 #include "popup.h"
 #include "protocol.h"
@@ -95,7 +96,7 @@ static int locate()
         std::fprintf(stderr, "figxit-helper: KWin is not on the session bus\n");
         return 1;
     }
-    auto *locator = new KWinLocator(qApp);
+    auto *locator = new KWinLocator(QStringLiteral("figxit-locator-locate"), qApp);
     QObject::connect(locator, &WindowLocator::changed, [locator] {
         const std::optional<WindowInfo> window = locator->active();
         if (!window) {
@@ -145,11 +146,33 @@ static QScreen *screenFor(const WindowInfo &window)
     return QGuiApplication::screenAt(window.client.center());
 }
 
+// The engine and the shells skip starting Figxit again while this file is
+// there. `figxit stop` puts it there; starting the helper takes it away.
+static void markStopped(const QString &socket, bool stopped)
+{
+    QFile flag(QFileInfo(socket).absolutePath() + QStringLiteral("/stopped"));
+    if (stopped) {
+        if (flag.open(QIODevice::WriteOnly)) flag.close();
+    } else {
+        flag.remove();
+    }
+}
+
+// The KWin script of the helper on the usual socket has a fixed name, so a new
+// helper replaces the script a crashed one left. A helper on another socket,
+// as in tests, gets a name of its own.
+static QString scriptName(const QString &socket)
+{
+    if (!qEnvironmentVariableIsSet("FIGXIT_HELPER_SOCK")) return QStringLiteral("figxit-locator");
+    return QStringLiteral("figxit-locator-") + QString::number(qHash(socket), 16);
+}
+
 class Helper
 {
 public:
     explicit Helper(const QString &socket)
-        : m_surface(&m_window)
+        : m_socket(socket)
+        , m_surface(&m_window)
         , m_popup(&m_window, &m_surface)
         , m_server(socket, [this](const QByteArray &line) { return handle(line); })
     {
@@ -158,7 +181,7 @@ public:
     bool start()
     {
         if (KWinLocator::available()) {
-            m_locator = std::make_unique<KWinLocator>();
+            m_locator = std::make_unique<KWinLocator>(scriptName(m_socket));
             if (m_locator->start()) {
                 QObject::connect(m_locator.get(), &WindowLocator::changed, m_locator.get(), [this] { windowChanged(); });
             } else {
@@ -168,7 +191,13 @@ public:
         }
         m_focus = std::make_unique<AccessibleFocus>();
         if (!m_focus->start()) m_focus.reset();
-        return m_server.start();
+        if (!m_server.start()) return false;
+        m_engine = EngineSupervisor::create();
+        if (m_engine) {
+            markStopped(m_socket, false);
+            m_engine->start();
+        }
+        return true;
     }
 
 private:
@@ -204,6 +233,7 @@ private:
         }
         if (cmd == QLatin1String("open")) return statusReply(true);
         if (cmd == QLatin1String("quit")) {
+            markStopped(m_socket, true);
             forget(false);
             QTimer::singleShot(0, qApp, &QCoreApplication::quit);
             return statusReply(true);
@@ -264,12 +294,14 @@ private:
         if (tellEngine) m_server.broadcast(QByteArrayLiteral(R"({"event":"hidden"})"));
     }
 
+    QString m_socket;
     ListWindow m_window;
     LayerShellSurface m_surface;
     Popup m_popup;
     Server m_server;
     std::unique_ptr<KWinLocator> m_locator;
     std::unique_ptr<AccessibleFocus> m_focus;
+    std::unique_ptr<EngineSupervisor> m_engine;
     std::optional<Shown> m_shown;
 };
 

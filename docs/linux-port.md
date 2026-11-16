@@ -201,6 +201,8 @@ KWin の座標は論理ピクセルで、Qt も論理ピクセルで扱う。
 
 engine は helper が動いていないとき `open -g`（macOS のコマンド）で起動している（`engine/src/helper.ts`）。Linux では helper の実行ファイルを直接起動する。あとで必要になれば systemd のユーザーサービスにする。
 
+実装：`engine/src/launch.ts` の `launchApp` にまとめた。macOS ではこれまでどおり `open`、Linux では `setsid -f <app>/Contents/MacOS/figxit-helper`（端末の Ctrl-C が届かないよう、別のセッションで動かす）。使う場所は `helper.ts`、`bridge.ts`、`main.ts` の `start` と `open`。helper は macOS 版と同じく engine を起動し、落ちたら起動し直す（`helper-linux/src/engine.cpp`、`EngineSupervisor` の移植）。`figxit stop` で `stopped` フラグを立て、helper の起動で消す。zsh の `shell/zsh/connect.zsh` にはまだ `open -g` が残っている（zsh は使わないので未対応）。
+
 ### 7. 後回しにするもの
 
 - メニューバーのアイコン → トレイアイコン（StatusNotifierItem、`QSystemTrayIcon`）
@@ -223,7 +225,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 
 | 場所 | 内容 |
 |---|---|
-| `engine/src/helper.ts` | helper の起動に `open -g` を使っている |
+| `engine/src/helper.ts` | helper の起動に `open -g` を使っている（フォークでは `launch.ts` で直した） |
 | `engine/src/paths.ts` | `bundlePath`、`appPath`、`specsDir` が `.app/Contents/MacOS` の構成を前提にしている |
 | `engine/src/geometry.ts` | Ghostty のパスが `/Applications/Ghostty.app/...` 決め打ち |
 | `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する。PATH の候補に `/opt/homebrew/bin` |
@@ -253,7 +255,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 2. **engine だけ動かす**：`helper.sock` に届いた JSON をログに出すだけの仮の helper を作り、bash + Konsole で候補が届くことを確かめる
 3. **ポップアップを出す**（済）：layer-shell で固定の位置にポップアップを出す。フォーカスを奪わないことを確かめる
 4. **カーソルの下に出す**（済）：KWin スクリプトでウィンドウの位置を取り、カーソルの下に出す
-5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code は済）：ほかのターミナル
+5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
 8. **本家に送る**：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
@@ -291,6 +293,27 @@ zsh は使わないので入れない。zsh のテストは実行しない。
 - テスト 3 件：bash のバージョンは `BASH_VERSINFO` で調べる。versioned specs の子プロセスには環境変数を明示的に渡す。make の出力はどちらの引用符でも通す
 
 修正後は、通常の umask（0002）と日本語ロケールのままで、zsh のテストを除く単体テストがすべて通る。e2e も bash で、tmux の位置情報ありの 63 件、なしの 62 件がすべて通る。
+
+## インストール（普段使い）
+
+```bash
+helper-linux/install.sh
+```
+
+で、ビルドして `~/.local/lib/figxit/Figxit.app` にインストールする。dev.sh が動いていたら、先に Ctrl-C で止めておく。`~/.bashrc` に次の 1 行を足すかを聞かれるので、Y で答えて新しいターミナルを開く（macOS 版の Setup の Add ボタンにあたる）。ターミナルから実行しなかったときや N のときは、1 行を表示するだけなので、自分で足す。もう入っていれば何もしない。
+
+```bash
+eval "$('/home/<user>/.local/lib/figxit/Figxit.app/Contents/MacOS/figxit-engine' init bash)"
+```
+
+- フォルダの形は macOS の Figxit.app と同じ（`Contents/MacOS/{figxit-engine,figxit-helper}`、`Contents/Resources/{specs,shell}`）。engine とシェルのファイルの `$FIGXIT_APP/Contents/...` がそのまま使える
+- engine は `bun build --compile` で 1 つの実行ファイルにする（約 110 MB）。使う人の PATH に bun は要らない
+- aws、az、gcloud の補完は同梱する（補完データは約 77 MB）。macOS 版は後からダウンロードするが、その tar は macOS の tar で作られていて Linux では作れない
+- 起動の流れ：シェルの最初のプロンプトで bridge が engine を見つけられないと、`launchApp` で helper を起動し、helper が engine を起動する。ログイン時の自動起動はしていない
+- `figxit stop` と `figxit start`、`figxit doctor` が使える（`figxit` はシェルの関数）
+- `helper-linux/install.sh --build` は `dist/linux` に作るだけ。`--uninstall` で止めて消す
+- ビルドの途中で失敗したら、そこで止まり、インストールしない（`build && install` と書くと `set -e` が効かず、古いビルドを入れてしまうので、1 行ずつ書いている）
+- 確かめたこと（2026-11-17、サンドボックスの中で `dist/linux` を使って）：`init bash` の出力、bridge → helper → engine の起動、engine を止めると helper が起動し直す、`stop` と `start`、`doctor`
 
 ## helper-linux の現状（手順 3・4）
 

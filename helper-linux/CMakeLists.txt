@@ -18,6 +18,7 @@ add_executable(figxit-helper
   src/popup.cpp
   src/placement.cpp
   src/accessibility.cpp
+  src/engine.cpp
   src/theme.cpp
   src/locator.h
   src/locator/kwin.cpp

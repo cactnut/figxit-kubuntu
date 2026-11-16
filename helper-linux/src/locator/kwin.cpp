@@ -12,7 +12,6 @@
 #include <cmath>
 
 static const QString kwinService = QStringLiteral("org.kde.KWin");
-static const QString pluginName = QStringLiteral("figxit-locator");
 
 static QDBusInterface scripting()
 {
@@ -21,27 +20,28 @@ static QDBusInterface scripting()
 
 // Writes the script where KWin can read it: the runtime folder, or the temp
 // folder when that is not writable.
-static QString writeScript(const QString &service)
+static QString writeScript(const QString &service, const QString &name)
 {
     QFile source(QStringLiteral(":/kwin-locator.js"));
     if (!source.open(QIODevice::ReadOnly)) return {};
     const QByteArray script = source.readAll().replace("FIGXIT_SERVICE", service.toUtf8());
     for (const QString &dir : {QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation), QDir::tempPath()}) {
         if (dir.isEmpty()) continue;
-        QFile file(dir + QStringLiteral("/figxit-locator.js"));
+        QFile file(dir + QLatin1Char('/') + name + QStringLiteral(".js"));
         if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(script) == script.size()) return file.fileName();
     }
     return {};
 }
 
-KWinLocator::KWinLocator(QObject *parent)
+KWinLocator::KWinLocator(QString name, QObject *parent)
     : WindowLocator(parent)
+    , m_name(std::move(name))
 {
 }
 
 KWinLocator::~KWinLocator()
 {
-    if (m_loaded) scripting().call(QStringLiteral("unloadScript"), pluginName);
+    if (m_loaded) scripting().call(QStringLiteral("unloadScript"), m_name);
 }
 
 bool KWinLocator::available()
@@ -54,11 +54,11 @@ bool KWinLocator::start()
 {
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.registerObject(QStringLiteral("/Locator"), this, QDBusConnection::ExportScriptableSlots)) return false;
-    const QString path = writeScript(bus.baseService());
+    const QString path = writeScript(bus.baseService(), m_name);
     if (path.isEmpty()) return false;
     QDBusInterface kwin = scripting();
-    kwin.call(QStringLiteral("unloadScript"), pluginName);
-    const QDBusReply<int> id = kwin.call(QStringLiteral("loadScript"), path, pluginName);
+    kwin.call(QStringLiteral("unloadScript"), m_name);
+    const QDBusReply<int> id = kwin.call(QStringLiteral("loadScript"), path, m_name);
     if (!id.isValid() || id.value() < 0) return false;
     m_loaded = true;
     kwin.call(QStringLiteral("start"));

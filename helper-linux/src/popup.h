@@ -66,7 +66,6 @@ public:
     QRect show(const QList<Item> &items, int selected, const Placement &placement, QScreen *screen);
     void select(int index);
     void hide();
-    bool visible() const;
 
 private:
     ListWindow *m_window;

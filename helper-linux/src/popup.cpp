@@ -166,8 +166,3 @@ void Popup::hide()
 {
     m_window->hide();
 }
-
-bool Popup::visible() const
-{
-    return m_window->isVisible();
-}

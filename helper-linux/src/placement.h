@@ -4,6 +4,11 @@
 // terminal's window. A port of Geometry.fit in
 // helper/Sources/figxit-helper/Geometry.swift, with its tests in
 // tests/placement_test.cpp.
+//
+// One difference: Geometry.fit gets the window with its title bar and takes
+// off assumedTitlebar (28 points) when it has no cell height. Here the window
+// comes without decorations, from KWin's clientGeometry, so nothing is taken
+// off. Keep that in mind when porting later changes to Geometry.fit.
 
 #include "protocol.h"
 
@@ -45,6 +50,11 @@ std::optional<QRectF> visibleSurface(const QRectF &frame, bool inScrollPane, con
 // Turns an element's extents, in window coordinates, into global logical
 // pixels. In Chromium, elements of a web document report device pixels while
 // the native view around the document reports logical ones; comparing the
-// document with that host gives the scale and the offset. Without a document,
-// extents are already logical and start at the window's client area.
+// sizes of the document and that host gives the scale. The document's top
+// left is taken to be the top left of the window's client area, so only the
+// element's offset from the document counts: the window coordinates start at
+// the shadow around the window, which KWin's client area leaves out. That
+// holds in VS Code with its own title bar, where the document fills the
+// window. Without a document, extents are already logical and start at the
+// window's client area.
 QRectF toGlobal(const QRectF &extents, const std::optional<QRectF> &document, const std::optional<QRectF> &host, QPointF client);

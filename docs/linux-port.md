@@ -77,7 +77,11 @@ engine と helper の間のプロトコルは macOS 版と同じものを使う�
 | Surface | ポップアップを好きな座標に、フォーカスを奪わずに出す | Wayland プロトコル | layer-shell（LayerShellQt） | GNOME：別の方法が必要、X11：override-redirect ウィンドウ |
 | TerminalProfile | ウィンドウの中でテキスト領域がどこにあるかを補正する | ターミナル | Konsole | ターミナルごとに追加 |
 
-バックエンドは起動時に `XDG_CURRENT_DESKTOP` と `WAYLAND_DISPLAY` を見て選ぶ。環境変数（例：`FIGXIT_WINDOW_BACKEND`）で上書きできるようにする。
+バックエンドは起動時に `backends.cpp` で選ぶ。`Helper` は `WindowLocator` と `PopupSurface` だけを知っていて、KWin や layer-shell を直接は使わない。
+
+- WindowLocator：`backends.cpp` の表に並べた順に、使えるもの（KWin なら D-Bus に `org.kde.KWin` がある）を試し、最初に `start()` できたものを使う。`FIGXIT_WINDOW_BACKEND=kwin` のように名前で選べる。`none` にすると使わない（ポップアップは固定の位置に出る）
+- PopupSurface：Qt のプラットフォームが Wayland で、LayerShellQt を入れてビルドしたときは layer-shell。どれも使えなければ、helper は動くが `show` に失敗を返す
+- 他の環境に対応するときは、`locator/` か `surface/` にファイルを 1 つ足し、`backends.cpp` に 1 行足す。LayerShellQt はビルドに必須ではない（CMake は見つかったときだけ `surface/layershell.cpp` を加える）
 
 インターフェースはおおよそ次の形にする。
 
@@ -92,6 +96,7 @@ struct WindowInfo {
 class WindowLocator : public QObject {
     Q_OBJECT
 public:
+    virtual bool start() = 0;
     virtual std::optional<WindowInfo> active() const = 0;
 signals:
     void changed();     // フォーカスや位置が変わったとき
@@ -124,6 +129,7 @@ helper-linux/
     theme.{h,cpp}            # 色。kdeglobals から読む
     placement.{h,cpp}        # 配置の計算（Geometry.fit と visibleSurface の移植、純粋関数）
     accessibility.{h,cpp}    # AT-SPI でフォーカスのある要素からテキスト領域を探す（VS Code）
+    backends.{h,cpp}         # デスクトップごとの WindowLocator と PopupSurface を選ぶ
     surface.h                # PopupSurface
     surface/layershell.{h,cpp}
     locator.h                # WindowLocator
@@ -183,6 +189,8 @@ Konsole はメニューバー、タブバー、ツールバー、スクロール
 - Chromium は、Web の中身の座標を実ピクセルで、外側のネイティブの枠を論理ピクセルで返す（倍率 1.45 の画面で、`document web` が 2161 幅、枠が 1490 幅）。`document web` と枠を比べて、倍率とずれを求める（`toGlobal`）
 - KWin の `clientGeometry` は、VS Code の影を除いた大きさで、AT-SPI の枠と一致する
 - 追加のライブラリは使わず、Qt の D-Bus で AT-SPI のバスに直接つなぐ
+- D-Bus の呼び出しは GUI スレッドで待つので、たどった結果（テキスト領域、scroll pane、`document web`、枠の 4 つの要素）をフォーカスが移るまで覚えておく。2 回目からの `show` では、それぞれの位置を聞くだけ（3〜4 回）で済む。要素がなくなったり 100×100 以下になったりしたら、たどり直す
+- ポップアップを出したあとに同じアプリの中でフォーカスが移ったら（ターミナルからエディタをクリックしたときなど）、ポップアップを閉じて engine に `{"event":"hidden"}` を送る（macOS 版の `axChanged` と同じ）。ログでは、文字を打っている間にフォーカスの通知は来ていなかった
 - 領域が見つからないアプリ（Konsole など）は、これまでどおりウィンドウ全体から計算する
 
 ### 4. セルの大きさ（ピクセル）
@@ -199,9 +207,20 @@ KWin の座標は論理ピクセルで、Qt も論理ピクセルで扱う。
 
 ### 6. helper の起動
 
-engine は helper が動いていないとき `open -g`（macOS のコマンド）で起動している（`engine/src/helper.ts`）。Linux では helper の実行ファイルを直接起動する。あとで必要になれば systemd のユーザーサービスにする。
+engine は helper が動いていないとき `open -g`（macOS のコマンド）で起動している（`engine/src/helper.ts`）。Linux では helper の実行ファイルを直接起動する。
 
-実装：`engine/src/launch.ts` の `launchApp` にまとめた。macOS ではこれまでどおり `open`、Linux では `setsid -f <app>/Contents/MacOS/figxit-helper`（端末の Ctrl-C が届かないよう、別のセッションで動かす）。使う場所は `helper.ts`、`bridge.ts`、`main.ts` の `start` と `open`。helper は macOS 版と同じく engine を起動し、落ちたら起動し直す（`helper-linux/src/engine.cpp`、`EngineSupervisor` の移植）。`figxit stop` で `stopped` フラグを立て、helper の起動で消す。zsh の `shell/zsh/connect.zsh` にはまだ `open -g` が残っている（zsh は使わないので未対応）。
+実装：`engine/src/launch.ts` の `launchApp` にまとめた。
+
+- macOS ではこれまでどおり `open`。`bridge.ts` と `helper.ts` では終わりを待たず、`main.ts` の `start` と `open` では待つ（元の `Bun.spawn` と `Bun.spawnSync` の使い分けのまま）
+- Linux では `systemd-run --user --unit=figxit-helper` で、helper をユーザーサービスとして起動する。macOS の `open` と同じく、起動を頼んだシェルの環境変数と作業フォルダを引き継がない。シェルが入れた `KUBECONFIG` や venv が engine に残って、ほかのターミナルの補完に効くことがない。PATH は、これまでどおりシェルが engine に知らせる
+- 表示とセッションバスの変数（`WAYLAND_DISPLAY`、`DISPLAY`、`DBUS_SESSION_BUS_ADDRESS`、`XDG_CURRENT_DESKTOP`、`XDG_SESSION_TYPE`）だけはシェルから渡す。サービスマネージャーにそれらを渡さないデスクトップでも表示できるように
+- systemd-run がない、または失敗したときは、`/` から `setsid -f` で起動する（端末の Ctrl-C が届かないよう、別のセッションで動かす）
+- helper の実行ファイルがなければ、起動せずに失敗を返す（`setsid -f` は子が失敗しても 0 を返すため）
+- ログは `journalctl --user -u figxit-helper` で見られる
+
+zsh（`shell/zsh/connect.zsh`）は `open -g` を直接呼ばず、app の中の `figxit-engine start` をバックグラウンドで動かす。OS ごとの分岐は `launch.ts` だけにある。bash と fish は bridge 経由なので、もともと `launch.ts` を通る。
+
+helper は macOS 版と同じく engine を起動し、落ちたら起動し直す（`helper-linux/src/engine.cpp`、`EngineSupervisor` の移植）。`figxit stop` で `stopped` フラグを立て、helper の起動で消す。
 
 ### 7. 後回しにするもの
 
@@ -231,7 +250,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 | `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する。PATH の候補に `/opt/homebrew/bin` |
 | `engine/src/specs.ts` の `trusted()` | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される |
 | `shell/*/figxit.*`、`shell/*/connect.*` | engine の場所が `$FIGXIT_APP/Contents/MacOS/figxit-engine` 決め打ち |
-| `shell/zsh/connect.zsh` | helper の起動に `open -g` |
+| `shell/zsh/connect.zsh` | helper の起動に `open -g`（フォークでは `figxit-engine start` に頼むよう直した。zsh がないので動作は未確認） |
 | `scripts/dev.sh`、`scripts/build.sh`、`Makefile` | `open -g`、`xcrun swift test`、`.app` の組み立て |
 
 テストにも、Linux 以外の環境でも起こりうる問題があった。
@@ -309,7 +328,7 @@ eval "$('/home/<user>/.local/lib/figxit/Figxit.app/Contents/MacOS/figxit-engine'
 - フォルダの形は macOS の Figxit.app と同じ（`Contents/MacOS/{figxit-engine,figxit-helper}`、`Contents/Resources/{specs,shell}`）。engine とシェルのファイルの `$FIGXIT_APP/Contents/...` がそのまま使える
 - engine は `bun build --compile` で 1 つの実行ファイルにする（約 110 MB）。使う人の PATH に bun は要らない
 - aws、az、gcloud の補完は同梱する（補完データは約 77 MB）。macOS 版は後からダウンロードするが、その tar は macOS の tar で作られていて Linux では作れない
-- 起動の流れ：シェルの最初のプロンプトで bridge が engine を見つけられないと、`launchApp` で helper を起動し、helper が engine を起動する。ログイン時の自動起動はしていない
+- 起動の流れ：シェルの最初のプロンプトで bridge が engine を見つけられないと、`launchApp` で helper をユーザーサービス（`figxit-helper`）として起動し、helper が engine を起動する。ログイン時の自動起動はしていない
 - `figxit stop` と `figxit start`、`figxit doctor` が使える（`figxit` はシェルの関数）
 - `helper-linux/install.sh --build` は `dist/linux` に作るだけ。`--uninstall` で止めて消す
 - ビルドの途中で失敗したら、そこで止まり、インストールしない（`build && install` と書くと `set -e` が効かず、古いビルドを入れてしまうので、1 行ずつ書いている）
@@ -317,7 +336,7 @@ eval "$('/home/<user>/.local/lib/figxit/Figxit.app/Contents/MacOS/figxit-engine'
 
 ## helper-linux の現状（手順 3・4）
 
-ビルドに必要なもの：`qt6-base-dev`、`liblayershellqtinterface-dev`、`cmake`、`g++`
+ビルドに必要なもの：`qt6-base-dev`、`liblayershellqtinterface-dev`、`cmake`、`g++`（LayerShellQt がなくてもビルドはできるが、Wayland ではポップアップを出せない）
 
 ```bash
 helper-linux/dev.sh

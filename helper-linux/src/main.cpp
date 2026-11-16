@@ -3,19 +3,21 @@
 //   figxit-helper                                   listen on helper.sock
 //   figxit-helper --snapshot items.json out.png     draw a list into a PNG, in the
 //                 [--light | --dark] [--scale N]   desktop's colors or Breeze's
-//   figxit-helper --locate                          print the active window as KWin
-//                                                   reports it
+//   figxit-helper --locate                          print the active window as the
+//                                                   desktop reports it
 //
-// The list opens under the cursor's cell in the active window, which a KWin
-// script reports. FIGXIT_DEBUG=1 prints each placement. See docs/linux-port.md.
+// The list opens under the cursor's cell in the active window, which the
+// desktop's window backend reports: a KWin script on KDE Plasma (backends.h).
+// FIGXIT_DEBUG=1 prints each placement. See docs/linux-port.md.
 
 #include "accessibility.h"
+#include "backends.h"
 #include "engine.h"
-#include "locator/kwin.h"
+#include "locator.h"
 #include "popup.h"
 #include "protocol.h"
 #include "server.h"
-#include "surface/layershell.h"
+#include "surface.h"
 #include "theme.h"
 
 #include <QDir>
@@ -89,14 +91,15 @@ static void quitOnSignals(QGuiApplication &app)
     }
 }
 
-// Prints the active window each time it changes, to see what KWin reports.
+// Prints the active window each time it changes, to see what the desktop reports.
 static int locate()
 {
-    if (!KWinLocator::available()) {
-        std::fprintf(stderr, "figxit-helper: KWin is not on the session bus\n");
+    const std::unique_ptr<WindowLocator> started = startLocator(QStringLiteral("figxit-locator-locate"));
+    if (!started) {
+        std::fprintf(stderr, "figxit-helper: no window backend works on this desktop\n");
         return 1;
     }
-    auto *locator = new KWinLocator(QStringLiteral("figxit-locator-locate"), qApp);
+    WindowLocator *locator = started.get();
     QObject::connect(locator, &WindowLocator::changed, [locator] {
         const std::optional<WindowInfo> window = locator->active();
         if (!window) {
@@ -112,10 +115,6 @@ static int locate()
         }
         std::fflush(stdout);
     });
-    if (!locator->start()) {
-        std::fprintf(stderr, "figxit-helper: cannot load the KWin script\n");
-        return 1;
-    }
     return qApp->exec();
 }
 
@@ -158,10 +157,10 @@ static void markStopped(const QString &socket, bool stopped)
     }
 }
 
-// The KWin script of the helper on the usual socket has a fixed name, so a new
-// helper replaces the script a crashed one left. A helper on another socket,
-// as in tests, gets a name of its own.
-static QString scriptName(const QString &socket)
+// The locator of the helper on the usual socket has a fixed name, so a new
+// helper replaces what a crashed one left, like KWin's script. A helper on
+// another socket, as in tests, gets a name of its own.
+static QString locatorName(const QString &socket)
 {
     if (!qEnvironmentVariableIsSet("FIGXIT_HELPER_SOCK")) return QStringLiteral("figxit-locator");
     return QStringLiteral("figxit-locator-") + QString::number(qHash(socket), 16);
@@ -172,23 +171,17 @@ class Helper
 public:
     explicit Helper(const QString &socket)
         : m_socket(socket)
-        , m_surface(&m_window)
-        , m_popup(&m_window, &m_surface)
+        , m_surface(makeSurface(&m_window))
+        , m_popup(&m_window, m_surface.get())
         , m_server(socket, [this](const QByteArray &line) { return handle(line); })
     {
     }
 
     bool start()
     {
-        if (KWinLocator::available()) {
-            m_locator = std::make_unique<KWinLocator>(scriptName(m_socket));
-            if (m_locator->start()) {
-                QObject::connect(m_locator.get(), &WindowLocator::changed, m_locator.get(), [this] { windowChanged(); });
-            } else {
-                std::fprintf(stderr, "figxit-helper: cannot load the KWin script, the list opens at a fixed place\n");
-                m_locator.reset();
-            }
-        }
+        m_locator = startLocator(locatorName(m_socket));
+        if (m_locator) QObject::connect(m_locator.get(), &WindowLocator::changed, m_locator.get(), [this] { windowChanged(); });
+        else std::fprintf(stderr, "figxit-helper: no window backend for this desktop, the list opens at a fixed place\n");
         m_focus = std::make_unique<AccessibleFocus>();
         if (!m_focus->start()) m_focus.reset();
         if (!m_server.start()) return false;
@@ -245,6 +238,7 @@ private:
     // Opens the list under the cursor's cell. Returns why when it cannot.
     QString place()
     {
+        if (!m_surface) return QStringLiteral("no way to place the list on this desktop");
         if (!m_shown->window) {
             m_popup.show(m_shown->items, m_shown->selected, fixedPlacement(), nullptr);
             return {};
@@ -296,10 +290,10 @@ private:
 
     QString m_socket;
     ListWindow m_window;
-    LayerShellSurface m_surface;
+    std::unique_ptr<PopupSurface> m_surface;
     Popup m_popup;
     Server m_server;
-    std::unique_ptr<KWinLocator> m_locator;
+    std::unique_ptr<WindowLocator> m_locator;
     std::unique_ptr<AccessibleFocus> m_focus;
     std::unique_ptr<EngineSupervisor> m_engine;
     std::optional<Shown> m_shown;

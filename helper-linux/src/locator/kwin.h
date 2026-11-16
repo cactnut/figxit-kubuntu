@@ -15,8 +15,10 @@ public:
     explicit KWinLocator(QString name, QObject *parent = nullptr);
     ~KWinLocator() override;
 
+    // KWin is on the session bus.
     static bool available();
-    bool start();
+
+    bool start() override;
     std::optional<WindowInfo> active() const override;
 
 public Q_SLOTS:

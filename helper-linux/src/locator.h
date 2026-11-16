@@ -2,7 +2,8 @@
 
 // Tells where the active window is. Wayland does not let a client see other
 // windows, so each desktop needs its own way: a KWin script on KDE Plasma,
-// a Shell extension on GNOME, swaymsg or hyprctl elsewhere.
+// a Shell extension on GNOME, swaymsg or hyprctl elsewhere. backends.cpp
+// picks one.
 
 #include <QObject>
 #include <QRect>
@@ -27,6 +28,8 @@ class WindowLocator : public QObject
 public:
     using QObject::QObject;
 
+    // Starts following the active window. False when the desktop refuses.
+    virtual bool start() = 0;
     virtual std::optional<WindowInfo> active() const = 0;
 
 Q_SIGNALS:

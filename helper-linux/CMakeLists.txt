@@ -9,7 +9,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Network DBus Test)
-find_package(LayerShellQt REQUIRED)
+# Puts the list on KDE Plasma and the other Wayland desktops with layer-shell.
+find_package(LayerShellQt QUIET)
 
 add_executable(figxit-helper
   src/main.cpp
@@ -20,14 +21,21 @@ add_executable(figxit-helper
   src/accessibility.cpp
   src/engine.cpp
   src/theme.cpp
+  src/backends.cpp
   src/locator.h
   src/locator/kwin.cpp
-  src/surface/layershell.cpp
   src/resources.qrc
 )
 set_target_properties(figxit-helper PROPERTIES AUTORCC ON)
 target_compile_options(figxit-helper PRIVATE -Wall -Wextra)
-target_link_libraries(figxit-helper PRIVATE Qt6::Gui Qt6::Network Qt6::DBus LayerShellQt::Interface)
+target_link_libraries(figxit-helper PRIVATE Qt6::Gui Qt6::Network Qt6::DBus)
+if(LayerShellQt_FOUND)
+  target_sources(figxit-helper PRIVATE src/surface/layershell.cpp)
+  target_compile_definitions(figxit-helper PRIVATE FIGXIT_LAYER_SHELL)
+  target_link_libraries(figxit-helper PRIVATE LayerShellQt::Interface)
+else()
+  message(WARNING "LayerShellQt was not found (liblayershellqtinterface-dev): the helper builds, but cannot show the list on Wayland")
+endif()
 
 enable_testing()
 add_executable(placement_test tests/placement_test.cpp src/placement.cpp src/protocol.cpp)

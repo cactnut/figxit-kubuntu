@@ -14,17 +14,18 @@ _figxit_send() {
   print -r -u $_figxit_fd -- $1 2>/dev/null || { _figxit_close; return 1 }
 }
 
+# The app's engine starts the app the way the OS wants it started.
 _figxit_start() {
   [[ -e ${_figxit_sock:h}/stopped ]] && return 0
   if [[ -n $FIGXIT_APP ]]; then
-    open -g $FIGXIT_APP &>/dev/null
+    $FIGXIT_APP/Contents/MacOS/figxit-engine start &>/dev/null &!
     return 0
   fi
   [[ -n $FIGXIT_AUTOSTART ]] || return 0
   if [[ -n $FIGXIT_ENGINE ]]; then
     ${=FIGXIT_ENGINE} &>/dev/null &!
   elif [[ -d $FIGXIT_HOME/dist/Figxit.app ]]; then
-    open -g $FIGXIT_HOME/dist/Figxit.app &>/dev/null
+    $FIGXIT_HOME/dist/Figxit.app/Contents/MacOS/figxit-engine start &>/dev/null &!
   fi
 }
 

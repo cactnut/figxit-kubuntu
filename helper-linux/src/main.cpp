@@ -242,6 +242,8 @@ private:
     {
         if (!m_surface) return QStringLiteral("no way to place the list on this desktop");
         if (!m_shown->window) {
+            // With a locator, no active window means no terminal to open under.
+            if (m_locator) return QStringLiteral("no terminal window");
             m_popup.show(m_shown->items, m_shown->selected, fixedPlacement(), nullptr);
             return {};
         }

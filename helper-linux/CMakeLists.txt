@@ -21,6 +21,7 @@ add_executable(figxit-helper
   src/accessibility.cpp
   src/engine.cpp
   src/theme.cpp
+  src/terminals.cpp
   src/backends.cpp
   src/locator.h
   src/locator/kwin.cpp
@@ -38,6 +39,6 @@ else()
 endif()
 
 enable_testing()
-add_executable(placement_test tests/placement_test.cpp src/placement.cpp src/protocol.cpp)
+add_executable(placement_test tests/placement_test.cpp src/placement.cpp src/protocol.cpp src/terminals.cpp)
 target_link_libraries(placement_test PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME placement COMMAND placement_test)

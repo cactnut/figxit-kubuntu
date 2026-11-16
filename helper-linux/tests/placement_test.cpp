@@ -2,6 +2,7 @@
 
 #include "../src/placement.h"
 #include "../src/protocol.h"
+#include "../src/terminals.h"
 
 #include <QTest>
 
@@ -146,6 +147,13 @@ private Q_SLOTS:
     void nativeExtentsStartAtTheClientArea()
     {
         QCOMPARE(toGlobal(QRectF(0, 60, 900, 700), std::nullopt, std::nullopt, QPointF(100, 50)), QRectF(100, 110, 900, 700));
+    }
+
+    void ghosttyCellsAreInDevicePixels()
+    {
+        QVERIFY(terminalProfile(QStringLiteral("com.mitchellh.ghostty")).devicePixels);
+        QVERIFY(!terminalProfile(QStringLiteral("org.kde.konsole")).devicePixels);
+        QVERIFY(!terminalProfile(QString()).devicePixels);
     }
 };
 

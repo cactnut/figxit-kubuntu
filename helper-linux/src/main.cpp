@@ -18,6 +18,7 @@
 #include "protocol.h"
 #include "server.h"
 #include "surface.h"
+#include "terminals.h"
 #include "theme.h"
 
 #include <QDir>
@@ -254,7 +255,7 @@ private:
         // The text area when the app tells it over AT-SPI, as in VS Code; else the whole window.
         const std::optional<QRectF> area = m_focus ? m_focus->surface(target.pid, target.client.topLeft()) : std::nullopt;
         m_shown->focus = area ? m_focus->focusedId() : QString();
-        const Fit fitted = fit(grid, area.value_or(QRectF(target.client)), area.has_value(), scale, target.appId == QLatin1String("com.mitchellh.ghostty"));
+        const Fit fitted = fit(grid, area.value_or(QRectF(target.client)), area.has_value(), scale, terminalProfile(target.appId).devicePixels);
         if (debugging()) {
             std::fprintf(stderr, "show app=%s client=%d,%d %dx%d scale=%.3f grid=%dx%d at %d,%d cellPx=%.1fx%.1f pane=%d",
                          qPrintable(target.appId), target.client.x(), target.client.y(), target.client.width(), target.client.height(), scale,

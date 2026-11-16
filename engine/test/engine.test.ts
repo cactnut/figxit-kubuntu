@@ -2,8 +2,8 @@ process.env.FIGXIT_SPECS = "off";
 process.env.FIGXIT_USER_SPECS = "/nonexistent/figxit-user-specs";
 
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { herdrUi, parseOrigin, parseShell, parseTmux, placeHerdr, placeInPane } from "../src/geometry";
 import { ICONS } from "../src/brands";
@@ -1090,6 +1090,27 @@ describe("user specs in ~/.config/figxit/specs", () => {
       chmodSync(join(dir, "tool-f.js"), 0o666);
       expect(await subcommands("tool-e")).toEqual(["bundled"]);
       expect(await subcommands("tool-f")).toEqual(["bundled"]);
+    });
+  });
+
+  test("a group-writable file loads only when its group is the user's own", async () => {
+    await withUserSpecs(async (dir) => {
+      registerSpec("tool-g", { name: "tool-g", subcommands: [{ name: "bundled" }] });
+      const file = join(dir, "tool-g.js");
+      writeFileSync(file, spec('{ name: "tool-g", subcommands: [{ name: "planted" }] }'));
+      chmodSync(file, 0o664);
+      const text = (path: string) => {
+        try {
+          return readFileSync(path, "utf8");
+        } catch {
+          return "";
+        }
+      };
+      // macOS puts new files in staff, a group other users share. Linux usually
+      // gives each user a group of their own.
+      const own = privateGroup(statSync(file).gid, userInfo(), text("/etc/group"), text("/etc/passwd"));
+      if (process.platform === "darwin") expect(own).toBe(false);
+      expect(await subcommands("tool-g")).toEqual([own ? "planted" : "bundled"]);
     });
   });
 

@@ -184,9 +184,18 @@ engine は helper が動いていないとき `open -g`（macOS のコマンド�
 | `engine/src/paths.ts` | `bundlePath`、`appPath`、`specsDir` が `.app/Contents/MacOS` の構成を前提にしている |
 | `engine/src/geometry.ts` | Ghostty のパスが `/Applications/Ghostty.app/...` 決め打ち |
 | `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する。PATH の候補に `/opt/homebrew/bin` |
+| `engine/src/specs.ts` の `trusted()` | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される |
 | `shell/*/figxit.*`、`shell/*/connect.*` | engine の場所が `$FIGXIT_APP/Contents/MacOS/figxit-engine` 決め打ち |
 | `shell/zsh/connect.zsh` | helper の起動に `open -g` |
 | `scripts/dev.sh`、`scripts/build.sh`、`Makefile` | `open -g`、`xcrun swift test`、`.app` の組み立て |
+
+テストにも、Linux 以外の環境でも起こりうる問題があった。
+
+| 場所 | 内容 |
+|---|---|
+| `engine/test/shell.test.ts` | bash のバージョン判定が英語の `bash --version`（`version 5`）を前提にしている。日本語ロケールでは bash 5 と判定されず、bash のテストがスキップされる |
+| `engine/test/versioned.test.ts` | `engine.test.ts` が設定した `FIGXIT_SPECS=off` が子プロセスに漏れる。テストをまとめて実行すると失敗し、単体では通る |
+| `engine/test/e2e.ts` | make の出力を macOS の make 3.81 の形（``for `deploy'``）で確かめている。Ubuntu の make 4.x は `for 'deploy'` と出すので失敗する |
 
 本家に送るときの決まり。
 
@@ -214,11 +223,36 @@ engine は helper が動いていないとき `open -g`（macOS のコマンド�
   - 本家に送る変更：`upstream/main` から切ったブランチで作る（Linux 用 helper を混ぜないため）
 - GitHub 上でこのリポジトリが本家のフォークになっているかを確かめる。なっていないと本家に PR を出せない
 
+## テストの結果（2026-11-16、Bun 1.4.4）
+
+`engine` の単体テストは、次の点を除いて Linux でそのまま通った。
+
+- zsh のテスト 45 件：zsh を入れていないため実行できない
+- ユーザー spec のテスト 3 件：umask 0002 が原因（上の表）。umask 022 なら通る
+- versioned specs のテスト 2 件：環境変数の漏れが原因（上の表）
+- bash のテスト 4 件：日本語ロケールでスキップされる。`LC_ALL=C` なら通る
+- daemon と cli のテスト 15 件：仮の helper とのやりとりを含めて通る
+
+`test/e2e.ts`（tmux 3.6 で実際の bash を動かす通しのテスト）も、bash では make の出力の確かめ方の 2 件を除いて通った。
+
+- tmux の位置情報あり：61 件が通り、2 件が失敗
+- tmux の位置情報なし（`FIGXIT_E2E_PLAIN=1`）：60 件が通り、2 件が失敗
+
+zsh は使わないので入れない。zsh のテストは実行しない。
+
+### 修正後
+
+上の表の 4 件を直した。
+
+- ユーザー spec：グループ書き込み可のファイルでも、そのグループが自分専用（主グループで、名前がユーザー名と同じで、ほかに誰もいない）なら読み込むようにした。他人も書き込めるファイルは引き続き読み込まない。Debian の OpenSSH にも同じ考え方の例外がある
+- テスト 3 件：bash のバージョンは `BASH_VERSINFO` で調べる。versioned specs の子プロセスには環境変数を明示的に渡す。make の出力はどちらの引用符でも通す
+
+修正後は、通常の umask（0002）と日本語ロケールのままで、zsh のテストを除く単体テストがすべて通る。e2e も bash で、tmux の位置情報ありの 63 件、なしの 62 件がすべて通る。
+
 ## 未検証・要確認
 
 - Konsole がセルの大きさの問い合わせに答えるか
 - AT-SPI で Konsole のテキスト領域の位置がウィンドウ相対で取れるか
 - KWin スクリプトから D-Bus で届く通知が、キー入力ごとの表示に間に合うか
 - layer-shell の margin を変えてポップアップを動かすときにちらつかないか
-- Linux 版の Bun で `engine` のテストが通るか
 - LayerShellQt の開発用パッケージ名（候補：`liblayershellqtinterface-dev`）

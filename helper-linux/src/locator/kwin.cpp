@@ -4,7 +4,6 @@
 #include <QDBusConnectionInterface>
 #include <QDBusInterface>
 #include <QDBusReply>
-#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -18,19 +17,20 @@ static QDBusInterface scripting()
     return QDBusInterface(kwinService, QStringLiteral("/Scripting"), QStringLiteral("org.kde.kwin.Scripting"));
 }
 
-// Writes the script where KWin can read it: the runtime folder, or the temp
-// folder when that is not writable.
+// Writes the script where KWin can read it: the runtime folder, which only
+// this user can write to. Not a shared temp folder, where another user could
+// put a file of the same name first and have KWin run it. Qt makes a private
+// one when XDG_RUNTIME_DIR is not set, and gives none when it is not private.
 static QString writeScript(const QString &service, const QString &name)
 {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+    if (dir.isEmpty()) return {};
     QFile source(QStringLiteral(":/kwin-locator.js"));
     if (!source.open(QIODevice::ReadOnly)) return {};
     const QByteArray script = source.readAll().replace("FIGXIT_SERVICE", service.toUtf8());
-    for (const QString &dir : {QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation), QDir::tempPath()}) {
-        if (dir.isEmpty()) continue;
-        QFile file(dir + QLatin1Char('/') + name + QStringLiteral(".js"));
-        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(script) == script.size()) return file.fileName();
-    }
-    return {};
+    QFile file(dir + QLatin1Char('/') + name + QStringLiteral(".js"));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(script) != script.size()) return {};
+    return file.fileName();
 }
 
 KWinLocator::KWinLocator(QString name, QObject *parent)

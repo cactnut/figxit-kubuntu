@@ -25,7 +25,7 @@
 2. **環境に依存する部分を分けておく。** デスクトップ環境、Wayland プロトコル、ターミナルに依存するコードはそれぞれバックエンドとして切り出す。他の環境に対応するときは、バックエンドを 1 つ足すだけで済むようにする。
 3. **本家への PR は 2 段階に分ける。**
    - engine と shell を OS に依存しない形にする変更は、本家に送る。小さく、mac 側の挙動を変えない変更にする
-   - Linux 用 helper は当面フォーク側で持つ。本家が欲しがれば [#35](https://github.com/en3sis/figxit/issues/35) で相談する
+   - Linux 用 helper は当面フォーク側で持つ。本家に入れたいかは、engine と shell の PR がマージされてから [#35](https://github.com/en3sis/figxit/issues/35) で聞く（下の「本家との関係」）
 4. **本家に追従し続ける。** 本家は engine と shell の修正が頻繁に入る。本家のファイルへの変更は最小限にして、upstream の取り込みで衝突しにくくする。
 
 ## 全体の構成
@@ -285,15 +285,21 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
-8. **本家に送る**：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
+8. **本家に送る**（テストの直しは送った）：engine と shell の変更を、本家の `main` から切ったブランチで PR にする
 
 ## 本家との関係
 
-- [#35](https://github.com/en3sis/figxit/issues/35) にコメントする。KDE Wayland で着手すること、engine と shell の変更を先に送ること、Linux 用 helper は当面フォーク側で持つことを伝える
+- [#35](https://github.com/en3sis/figxit/issues/35) は本家のオーナーが立てた issue（ラベルは `enhancement` と `area: install`）
+- 本家に PR を出す人は、自分で issue を立ててすぐ PR を出すか、issue なしで PR を出している。他人の issue に「やります」とコメントする習慣はない（2026-11-17 に見た）
+- そのため #35 には先にコメントしない。PR の説明文で #35 に触れ、GitHub が #35 に PR を表示するのに任せる
+- #35 にコメントするのは、Linux 用 helper を本家に入れたいかを聞くとき。本家にない言語とビルドの仕組みを持ち込むので、作ってから出さずに先に聞く。PR ① と ② がマージされてからにする
+- 本家に送る PR
+  - ①：[#79](https://github.com/en3sis/figxit/pull/79)（2026-11-17 に送った）、ブランチは `fix/portable-tests`。中身は `test/linux-portable` と同じで、コミットの頭を本家に合わせて `fix:` にした。日本語ロケールと make 4 でテストが通るようにする
+  - ②（まだ送っていない）：`fix/user-specs-private-group`。送る前に `specs.ts` のコメントを消し、main にだけある追加のテスト（`63c9834`）を入れる
 - ブランチの使い方
   - `main`：本家の `main` に Linux 対応を足したもの
   - 本家に送る変更：`upstream/main` から切ったブランチで作る（Linux 用 helper を混ぜないため）
-- GitHub 上でこのリポジトリが本家のフォークになっているかを確かめる。なっていないと本家に PR を出せない
+- このリポジトリは GitHub 上で本家のフォークになっている（2026-11-17 に確かめた）ので、本家に PR を出せる
 
 ## テストの結果（2026-11-16、Bun 1.4.4）
 

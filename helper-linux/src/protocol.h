@@ -1,13 +1,17 @@
 #pragma once
 
-// The messages the engine sends to the helper, one JSON object per line.
-// Same shape as helper/Sources/figxit-helper/Protocol.swift.
+// The messages the engine sends to the helper, one JSON object per line, and
+// the parts of the replies. Same shape as
+// helper/Sources/figxit-helper/Protocol.swift.
 
 #include <QByteArray>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <optional>
+
+class QRectF;
+struct Placement;
 
 struct Grid {
     int cols = 0;
@@ -41,3 +45,8 @@ struct Request {
 
 QList<Item> parseItems(const QByteArray &json);
 QByteArray statusReply(bool ok, const QString &error = {});
+
+// Rect and Placement in Protocol.swift: {x, y, w, h}, and the place of the
+// cursor's cell with the surface it was found in.
+QJsonObject rectJson(const QRectF &rect);
+QJsonObject placementJson(const Placement &placement);

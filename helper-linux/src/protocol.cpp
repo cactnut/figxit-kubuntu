@@ -1,7 +1,9 @@
 #include "protocol.h"
+#include "placement.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRectF>
 
 static std::optional<double> number(const QJsonObject &object, const char *key)
 {
@@ -69,4 +71,22 @@ QByteArray statusReply(bool ok, const QString &error)
     QJsonObject reply{{QStringLiteral("ok"), ok}};
     if (!error.isEmpty()) reply.insert(QStringLiteral("error"), error);
     return QJsonDocument(reply).toJson(QJsonDocument::Compact);
+}
+
+QJsonObject rectJson(const QRectF &rect)
+{
+    return {{QStringLiteral("x"), rect.x()}, {QStringLiteral("y"), rect.y()}, {QStringLiteral("w"), rect.width()}, {QStringLiteral("h"), rect.height()}};
+}
+
+QJsonObject placementJson(const Placement &placement)
+{
+    return {
+        {QStringLiteral("source"), placement.source},
+        {QStringLiteral("surface"), rectJson(placement.surface)},
+        {QStringLiteral("cellW"), placement.cellW},
+        {QStringLiteral("cellH"), placement.cellH},
+        {QStringLiteral("x"), placement.x},
+        {QStringLiteral("yTop"), placement.yTop},
+        {QStringLiteral("yBelow"), placement.yBelow},
+    };
 }

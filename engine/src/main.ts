@@ -58,6 +58,12 @@ async function accessibility(): Promise<boolean | null> {
 }
 
 function accessDetail(allowed: boolean, splitSeen: boolean): string {
+  // On Linux the helper asks AT-SPI where the terminal is inside an editor.
+  if (process.platform !== "darwin") {
+    return allowed
+      ? 'AT-SPI is on, the popup works in editor terminals that show their text area to it (VS Code: "force-renderer-accessibility": true in ~/.vscode/argv.json)'
+      : "AT-SPI is off, the popup stays hidden in editor terminals, optional";
+  }
   if (allowed) return "allowed, the popup works in split panes (Cmd+D) and editor terminals";
   const hidden = "not allowed, the popup stays hidden in split panes (Cmd+D) and editor terminals";
   return splitSeen ? `${hidden}. One was used: open Figxit Setup and click Allow… on Panes and editors` : `${hidden}, optional`;

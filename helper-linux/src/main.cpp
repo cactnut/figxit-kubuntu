@@ -26,6 +26,8 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPainter>
 #include <QScreen>
 #include <QSocketNotifier>
@@ -146,6 +148,14 @@ static QScreen *screenFor(const WindowInfo &window)
     return QGuiApplication::screenAt(window.client.center());
 }
 
+// The output's scale from the desktop, which knows fractional ones: Qt says
+// 2 on an output scaled to 1.45.
+static qreal scaleOf(const WindowInfo &window, QScreen *screen)
+{
+    if (window.scale > 0) return window.scale;
+    return screen ? screen->devicePixelRatio() : 1;
+}
+
 // The engine and the shells skip starting Figxit again while this file is
 // there. `figxit stop` puts it there; starting the helper takes it away.
 static void markStopped(const QString &socket, bool stopped)
@@ -234,8 +244,48 @@ private:
             QTimer::singleShot(0, qApp, &QCoreApplication::quit);
             return statusReply(true);
         }
-        if (cmd == QLatin1String("probe")) return statusReply(false, QStringLiteral("probe is not supported on Linux yet"));
+        if (cmd == QLatin1String("probe")) return probe(request->grid);
         return statusReply(false, QStringLiteral("unknown cmd"));
+    }
+
+    struct Located {
+        Fit fitted;
+        std::optional<QRectF> area; // the text area, when the app tells it over AT-SPI
+        qreal scale = 1;
+        QScreen *screen = nullptr;
+    };
+
+    // Where the cursor's cell is in this window: in the text area when the
+    // app tells it over AT-SPI, as in VS Code; else in the whole window.
+    Located locate(const Grid &grid, const WindowInfo &target)
+    {
+        Located located;
+        located.screen = screenFor(target);
+        located.scale = scaleOf(target, located.screen);
+        located.area = m_focus ? m_focus->surface(target.pid, target.client.topLeft()) : std::nullopt;
+        const QRectF base = located.area.value_or(QRectF(target.client));
+        located.fitted = fit(grid, base, located.area.has_value(), located.scale, terminalProfile(target.appId).devicePixels);
+        return located;
+    }
+
+    // The fields of ProbeReply in Protocol.swift that apply here: whether
+    // AT-SPI is on, for figxit doctor, and the active window and where the
+    // list would open in it, for debugging.
+    QByteArray probe(const std::optional<Grid> &grid)
+    {
+        QJsonObject reply{{QStringLiteral("axTrusted"), m_focus != nullptr}};
+        const std::optional<WindowInfo> window = m_locator ? m_locator->active() : std::nullopt;
+        if (window) {
+            reply.insert(QStringLiteral("app"), window->appId);
+            reply.insert(QStringLiteral("cgWindow"), rectJson(window->client));
+            reply.insert(QStringLiteral("scale"), scaleOf(*window, screenFor(*window)));
+            if (grid) {
+                const Fit fitted = locate(*grid, *window).fitted;
+                if (fitted.placement) reply.insert(QStringLiteral("placement"), placementJson(*fitted.placement));
+                reply.insert(QStringLiteral("split"), fitted.split);
+            }
+        }
+        return QJsonDocument(reply).toJson(QJsonDocument::Compact);
     }
 
     // Opens the list under the cursor's cell. Returns why when it cannot.
@@ -249,16 +299,14 @@ private:
             return {};
         }
         const WindowInfo &target = *m_shown->window;
-        QScreen *screen = screenFor(target);
-        const qreal scale = target.scale > 0 ? target.scale : screen ? screen->devicePixelRatio() : 1;
         const Grid &grid = m_shown->grid;
-        // The text area when the app tells it over AT-SPI, as in VS Code; else the whole window.
-        const std::optional<QRectF> area = m_focus ? m_focus->surface(target.pid, target.client.topLeft()) : std::nullopt;
+        const Located located = locate(grid, target);
+        const std::optional<QRectF> &area = located.area;
+        const Fit &fitted = located.fitted;
         m_shown->focus = area ? m_focus->focusedId() : QString();
-        const Fit fitted = fit(grid, area.value_or(QRectF(target.client)), area.has_value(), scale, terminalProfile(target.appId).devicePixels);
         if (debugging()) {
             std::fprintf(stderr, "show app=%s client=%d,%d %dx%d scale=%.3f grid=%dx%d at %d,%d cellPx=%.1fx%.1f pane=%d",
-                         qPrintable(target.appId), target.client.x(), target.client.y(), target.client.width(), target.client.height(), scale,
+                         qPrintable(target.appId), target.client.x(), target.client.y(), target.client.width(), target.client.height(), located.scale,
                          grid.cols, grid.rows, grid.col, grid.row, grid.cellPxW.value_or(0), grid.cellPxH.value_or(0), grid.pane);
             if (area) std::fprintf(stderr, " area=%.1f,%.1f %.1fx%.1f", area->x(), area->y(), area->width(), area->height());
         }
@@ -266,7 +314,7 @@ private:
             if (debugging()) std::fprintf(stderr, " -> %s\n", fitted.split ? "split" : "no place");
             return fitted.split ? QStringLiteral("split pane") : QStringLiteral("no place for the list");
         }
-        const QRect rect = m_popup.show(m_shown->items, m_shown->selected, *fitted.placement, screen);
+        const QRect rect = m_popup.show(m_shown->items, m_shown->selected, *fitted.placement, located.screen);
         if (debugging()) {
             const Placement &p = *fitted.placement;
             std::fprintf(stderr, " -> cell=%.2fx%.2f x=%.1f yTop=%.1f popup=%d,%d %dx%d\n", p.cellW, p.cellH, p.x, p.yTop, rect.x(), rect.y(),

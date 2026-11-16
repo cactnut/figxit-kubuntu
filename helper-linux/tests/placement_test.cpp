@@ -155,6 +155,15 @@ private Q_SLOTS:
         QVERIFY(!terminalProfile(QStringLiteral("org.kde.konsole")).devicePixels);
         QVERIFY(!terminalProfile(QString()).devicePixels);
     }
+
+    void placementIsSentAsInProtocolSwift()
+    {
+        const Placement placement{QStringLiteral("ax"), QRectF(10, 20, 300, 200), 8, 18, 50, 60, 78};
+        const QJsonObject json = placementJson(placement);
+        QCOMPARE(json.value(QLatin1String("source")).toString(), QStringLiteral("ax"));
+        QCOMPARE(json.value(QLatin1String("surface")).toObject().value(QLatin1String("w")).toDouble(), 300);
+        QCOMPARE(json.value(QLatin1String("yBelow")).toDouble(), 78);
+    }
 };
 
 QTEST_GUILESS_MAIN(PlacementTest)

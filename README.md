@@ -35,6 +35,11 @@ helper-linux/install.sh
 
 - The first prompt starts the helper as the systemd user service `figxit-helper`, and the helper starts the engine. Its log is in `journalctl --user -u figxit-helper`.
 - `figxit stop`, `figxit start`, and `figxit doctor` work as on macOS.
+- There is no Settings window on Linux, and `figxit open` does nothing. By default, Enter inserts the highlighted row and runs the line. To make Enter only insert it, so that a second Enter runs the line, create an empty file. Remove it to go back. The change applies from the next Enter, without a restart.
+
+  ```bash
+  touch ~/.local/state/figxit/enter-inserts
+  ```
 - To update, pull and run `helper-linux/install.sh` again. `helper-linux/install.sh --uninstall` stops Figxit and removes it. Remove the line from `~/.bashrc` yourself.
 - For the terminal in VS Code, add `"force-renderer-accessibility": true` to `~/.vscode/argv.json`, and set `"editor.accessibilitySupport": "off"` in your settings. Without `argv.json`, the list stays hidden there.
 - For the terminal in the Claude desktop app, start the app with `--force-renderer-accessibility`. The app rewrites its menu entry each time it starts, unless the entry has no `X-Claude-Generated=true` line. So remove that line and add the flag, then quit the app and start it again from the menu:

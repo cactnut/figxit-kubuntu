@@ -1,3 +1,51 @@
+# Figxit for Kubuntu
+
+<img src="assets/kubuntu-vscode.webp" width="880" alt="The terminal of VS Code on Kubuntu with git typed, and the list of git subcommands under the cursor. The list follows the window as it is moved and resized">
+
+This is a fork of [en3sis/figxit](https://github.com/en3sis/figxit) that runs Figxit on Linux, on KDE Plasma with Wayland. The engine and the shell scripts are upstream's, with small changes to start the helper on Linux. What is new is the helper in `helper-linux/`, written with Qt 6, that draws the list under the cursor. It is sent upstream in [en3sis/figxit#81](https://github.com/en3sis/figxit/pull/81).
+
+It is tested only on Kubuntu, on this setup:
+
+| | |
+|---|---|
+| OS | Kubuntu 26.04 LTS |
+| Desktop | KDE Plasma 6.6, Wayland session |
+| Terminal | Konsole, and the terminal in VS Code |
+| Shell | bash 5.3 |
+
+Other distributions with KDE Plasma 6 on Wayland may work, but have not been tried. Neither have zsh, fish, tmux, or other terminals. GNOME and X11 sessions are not supported.
+
+## Build and install
+
+You need [Bun](https://bun.sh), CMake 3.22 or later, a C++20 compiler, rsync, and Qt 6.5 or later with LayerShellQt. On Kubuntu, install all but Bun with:
+
+```bash
+sudo apt install cmake g++ rsync qt6-base-dev liblayershellqtinterface-dev
+```
+
+Then build and install:
+
+```bash
+git clone https://github.com/cactnut/figxit-kubuntu.git
+cd figxit-kubuntu
+helper-linux/install.sh
+```
+
+`install.sh` builds the helper and the engine, and installs them to `~/.local/lib/figxit/Figxit.app`. It then asks whether to add the line that loads Figxit to `~/.bashrc`. Answer Y, open a new terminal, and type a command. If you answer N, it prints the line for you to add yourself.
+
+- The first prompt starts the helper as the systemd user service `figxit-helper`, and the helper starts the engine. Its log is in `journalctl --user -u figxit-helper`.
+- `figxit stop`, `figxit start`, and `figxit doctor` work as on macOS.
+- To update, pull and run `helper-linux/install.sh` again. `helper-linux/install.sh --uninstall` stops Figxit and removes it. Remove the line from `~/.bashrc` yourself.
+- For the terminal in VS Code, add `"force-renderer-accessibility": true` to `~/.vscode/argv.json`, and set `"editor.accessibilitySupport": "off"` in your settings. Without `argv.json`, the list stays hidden there.
+
+To run from source while working on it, run `helper-linux/dev.sh`, then `source shell/bash/figxit.bash` in a new terminal. Notes on the port, in Japanese, are in [docs/linux-port.md](docs/linux-port.md).
+
+## Upstream README
+
+Everything after this point is the upstream README, unchanged. Its install steps and its limits are for macOS.
+
+---
+
 <img src="assets/icon.png" width="96" alt="Figxit app icon">
 
 # Figxit

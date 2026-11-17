@@ -246,22 +246,23 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 - `kdeglobals` に色がないとき（KDE 以外のデスクトップなど）は、xdg-desktop-portal の `org.freedesktop.appearance` `color-scheme` を見て、Breeze のライトかダークを使う。portal には待たずに問い合わせ（`ReadOne`、なければ `Read`）、答えは次に開いたときから使う。helper の起動時に一度問い合わせておくので、最初のポップアップから合う
 - 色をもっと細かく合わせたいデスクトップ環境では、`theme.cpp` に色の読み方を足す
 
-## engine と shell の変更点（本家に送る候補）
+## engine と shell の変更点
 
-いま見つかっている macOS 前提の箇所。
+見つかった macOS 前提の箇所と、どうしたか。直したものは本家に PR で送った（下の「本家との関係」）。
 
-| 場所 | 内容 |
-|---|---|
-| `engine/src/helper.ts` | helper の起動に `open -g` を使っている（フォークでは `launch.ts` で直した） |
-| `engine/src/paths.ts` | `bundlePath`、`appPath`、`specsDir` が `.app/Contents/MacOS` の構成を前提にしている |
-| `engine/src/geometry.ts` | Ghostty のパスが `/Applications/Ghostty.app/...` 決め打ち |
-| `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する（フォークでは Linux で AT-SPI の説明を出すよう直した）。PATH の候補に `/opt/homebrew/bin` |
-| `engine/src/specs.ts` の `trusted()` | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される |
-| `shell/*/figxit.*`、`shell/*/connect.*` | engine の場所が `$FIGXIT_APP/Contents/MacOS/figxit-engine` 決め打ち |
-| `shell/zsh/connect.zsh` | helper の起動に `open -g`（フォークでは `figxit-engine start` に頼むよう直した。zsh がないので動作は未確認） |
-| `scripts/dev.sh`、`scripts/build.sh`、`Makefile` | `open -g`、`xcrun swift test`、`.app` の組み立て |
+| 場所 | 内容 | どうしたか |
+|---|---|---|
+| `engine/src/helper.ts`、`bridge.ts`、`main.ts` | helper の起動に `open -g` を使っている | `launch.ts` の `launchApp` にまとめた（#81） |
+| `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する | Linux では AT-SPI の説明を出す（#81） |
+| `engine/src/specs.ts` の `trusted()` | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される | グループが自分専用なら読み込む（#80） |
+| `shell/zsh/connect.zsh` | helper の起動に `open -g` | macOS 以外では `figxit-engine start` に頼む（#81。zsh がないので動作は未確認） |
+| `engine/src/paths.ts` | `bundlePath`、`appPath`、`specsDir` が `.app/Contents/MacOS` の構成を前提にしている | 直していない。Linux でも Figxit.app と同じ形のフォルダにインストールするので、そのまま使える |
+| `shell/*/figxit.*`、`shell/*/connect.*` | engine の場所が `$FIGXIT_APP/Contents/MacOS/figxit-engine` 決め打ち | 同上 |
+| `engine/src/geometry.ts` | Ghostty のパスが `/Applications/Ghostty.app/...` 決め打ち | 直していない（Linux の Ghostty は未確認） |
+| `engine/src/main.ts` | PATH の候補に `/opt/homebrew/bin` | 直していない |
+| `scripts/dev.sh`、`scripts/build.sh`、`Makefile` | `open -g`、`xcrun swift test`、`.app` の組み立て | 直していない。Linux 用に `helper-linux/dev.sh` と `install.sh` を別に作った |
 
-テストにも、Linux 以外の環境でも起こりうる問題があった。
+テストにも、Linux 以外の環境でも起こりうる問題があった。3 つとも直し、#79 で本家に送った。
 
 | 場所 | 内容 |
 |---|---|
@@ -274,7 +275,8 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 - macOS での挙動を変えない
 - OS ごとの分岐は小さくまとめ、1 つの PR では 1 つのことだけ直す
 - コミットメッセージは本家に合わせる（`feat:` / `fix:` と平易な英語）
-- Linux 用 helper のコードは混ぜない
+- 小さな直しの PR に Linux 用 helper のコードを混ぜない。helper は Linux 対応の本体の PR にまとめる
+- コードのコメントを消す。このメモも送らない
 
 ## 進め方
 
@@ -284,8 +286,8 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 4. **カーソルの下に出す**（済）：KWin スクリプトでウィンドウの位置を取り、カーソルの下に出す
 5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
-7. **仕上げ**：トレイアイコン、設定、`figxit doctor`
-8. **本家に送る**（テストの直し、ユーザー spec の直し、Linux 対応の本体）：本家の `main` から切ったブランチで PR にする
+7. **仕上げ**（`figxit doctor` の AT-SPI の行は済）：トレイアイコン、設定
+8. **本家に送る**（済。#79、#80、#81 を送り、レビュー待ち）：本家の `main` から切ったブランチで PR にした
 
 ## 本家との関係
 
@@ -297,11 +299,13 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
   - ②：[#80](https://github.com/en3sis/figxit/pull/80)（2026-11-17 に送った）、ブランチは `fix/user-specs-own-group`。中身は `fix/user-specs-private-group` に main にだけあった追加のテスト（`63c9834`）を足して 1 コミットにし、`specs.ts` とテストのコメントを消したもの。消したコメントの説明は、コミットメッセージと PR の説明文に書いた
   - ③：[#81](https://github.com/en3sis/figxit/pull/81)（2026-11-17 に送った）、ブランチは `feat/linux-kde-wayland`。Linux 対応の本体で、`helper-linux/`、`launch.ts` まわり、doctor の AT-SPI の説明、zsh の起動、英語の `helper-linux/README.md`、本家の README の Linux の節。コミットは 2 つ（engine と zsh、helper と README）
     - フォークの main とは 2 点ちがう。コメントを消したこと（理由は `helper-linux/README.md` に移した）と、zsh が macOS では `open -g` のまま、ほかの OS でだけ `figxit-engine start` を使うこと（関数 `_figxit_launch`）。フォークの main は、どの OS でも `figxit-engine start` を使う
-    - 本家に入ったら、フォークの main は本家の版に合わせる
+- 3 つとも open で、レビューもコメントもまだない（2026-11-17 に見た）。3 つとも本家の `7b05577` から切っていて、同じファイルを触らないので、どれからマージされてもよい
+- マージを待つ間にレビューで直したことは、フォークの main にも入れる。マージされたら、フォークの main をその PR の版に合わせる（#81 なら上の 2 点のちがいも本家の版にする）
 - PR の説明文やコメントには、ローカルのユーザー名やパスを書かない（`<user>` などに置き換える）。#80 では一度書いてしまい、説明文を直して古い版を履歴から消した
 - ブランチの使い方
   - `main`：本家の `main` に Linux 対応を足したもの
-  - 本家に送る変更：`upstream/main` から切ったブランチで作る（Linux 用 helper を混ぜないため）
+  - 本家に送る変更：`upstream/main` から切ったブランチで作る（このメモやコメントなど、フォークにだけあるものを混ぜないため）
+  - `test/linux-portable`、`fix/user-specs-private-group`、`linux/helper`、`linux/review-fixes`：送ったブランチの元や、main に入れた作業のブランチ。もう使わない
 - このリポジトリは GitHub 上で本家のフォークになっている（2026-11-17 に確かめた）ので、本家に PR を出せる
 
 ## テストの結果（2026-11-16、Bun 1.4.4）
@@ -323,7 +327,7 @@ zsh は使わないので入れない。zsh のテストは実行しない。
 
 ### 修正後
 
-上の表の 4 件を直した。
+上の表の 4 件を直した（ユーザー spec は #80、テスト 3 件は #79 で本家に送った）。
 
 - ユーザー spec：グループ書き込み可のファイルでも、そのグループが自分専用（主グループで、名前がユーザー名と同じで、ほかに誰もいない）なら読み込むようにした。他人も書き込めるファイルは引き続き読み込まない。Debian の OpenSSH にも同じ考え方の例外がある
 - テスト 3 件：bash のバージョンは `BASH_VERSINFO` で調べる。versioned specs の子プロセスには環境変数を明示的に渡す。make の出力はどちらの引用符でも通す
@@ -351,7 +355,7 @@ eval "$('/home/<user>/.local/lib/figxit/Figxit.app/Contents/MacOS/figxit-engine'
 - ビルドの途中で失敗したら、そこで止まり、インストールしない（`build && install` と書くと `set -e` が効かず、古いビルドを入れてしまうので、1 行ずつ書いている）
 - 確かめたこと（2026-11-17、サンドボックスの中で `dist/linux` を使って）：`init bash` の出力、bridge → helper → engine の起動、engine を止めると helper が起動し直す、`stop` と `start`、`doctor`
 
-## helper-linux の現状（手順 3・4）
+## helper-linux の現状
 
 ビルドに必要なもの：`qt6-base-dev`、`liblayershellqtinterface-dev`、`cmake`、`g++`（LayerShellQt がなくてもビルドはできるが、Wayland ではポップアップを出せない）
 

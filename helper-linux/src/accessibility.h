@@ -10,7 +10,8 @@
 // for where they are now.
 //
 // Only apps that expose their accessibility tree can be found. VS Code does
-// with "force-renderer-accessibility": true in ~/.vscode/argv.json.
+// with "force-renderer-accessibility": true in ~/.vscode/argv.json, and the
+// Claude desktop app does when started with --force-renderer-accessibility.
 
 #include "focus.h"
 

@@ -132,7 +132,7 @@ helper-linux/
     placement.{h,cpp}        # 配置の計算（Geometry.fit と visibleSurface の移植、純粋関数）
     terminals.{h,cpp}        # ターミナルごとの補正（TerminalProfile）。app id で引く
     focus.h                  # FocusTracker
-    accessibility.{h,cpp}    # AT-SPI でフォーカスのある要素からテキスト領域を探す（VS Code）
+    accessibility.{h,cpp}    # AT-SPI でフォーカスのある要素からテキスト領域を探す（VS Code、Claude desktop）
     backends.{h,cpp}         # デスクトップごとの WindowLocator、PopupSurface、FocusTracker を選ぶ
     surface.h                # PopupSurface
     surface/layershell.{h,cpp}
@@ -198,6 +198,17 @@ Konsole はメニューバー、タブバー、ツールバー、スクロール
 - D-Bus の呼び出しは GUI スレッドで待つので、たどった結果（テキスト領域、scroll pane、`document web`、枠の 4 つの要素）をフォーカスが移るまで覚えておく。2 回目からの `show` では、それぞれの位置を聞くだけ（3〜4 回）で済む。要素がなくなったり 100×100 以下になったりしたら、たどり直す
 - ポップアップを出したあとに同じアプリの中でフォーカスが移ったら（ターミナルからエディタをクリックしたときなど）、ポップアップを閉じて engine に `{"event":"hidden"}` を送る（macOS 版の `axChanged` と同じ）。ログでは、文字を打っている間にフォーカスの通知は来ていなかった
 - 領域が見つからないアプリ（Konsole など）は、これまでどおりウィンドウ全体から計算する
+
+### 3-3. Claude desktop のターミナル
+
+Claude desktop（Linux 版 5.11492、app id は `com.anthropic.Claude`）の Code タブのターミナルも xterm.js（WebGL）で、`TERM_PROGRAM=claude-desktop` が付く。VS Code と同じ方法（3-2）で、helper を変えずに動いた。
+
+- そのままでは AT-SPI に窓の枠しか出さない。`--force-renderer-accessibility` を付けて起動すると中身も出す。VS Code の `argv.json` にあたる設定ファイルはない
+- Claude desktop は起動のたびに `~/.local/share/applications/com.anthropic.Claude.desktop` を書き直す。ただし `X-Claude-Generated=true` の行がないファイルはユーザーのものとみなして触らない（`app.asar` の中のコードで確かめた）。そこで、この行を消して `Exec=` にフラグを足す（手順は README）
+- xterm.js の `windowOptions` が `pushTitle` と `popTitle` だけなので、セルの大きさ（`CSI 16t`、`CSI 14t`）には答えない。AT-SPI からテキスト領域が取れれば、領域を桁数と行数で割って求める（`fit` で `focused` のとき。macOS 版と同じ）
+- 中身は複数の WebContentsView に分かれているが、メインの窓では `document web` が 1 つで窓全体を覆う（倍率 1.45 で、`document web` が 23,14 2161×1903、その外側の panel が 16,10 1490×1312 で、KWin の `clientGeometry` と同じ大きさ）。`toGlobal` の前提はそのまま成り立つ
+- 入力欄（`ターミナル入力`、10×29）から 2 段上が xterm.js の画面（568×1737、canvas と同じ大きさ）で、これがテキスト領域になる
+- このセッションをどの窓にも開いていないときは、ターミナルのタブがカーソル位置の問い合わせ（`CSI 6n`）に答えなかった。画面に出ていないので困らない
 
 ### 4. セルの大きさ（ピクセル）
 
@@ -284,7 +295,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 2. **engine だけ動かす**：`helper.sock` に届いた JSON をログに出すだけの仮の helper を作り、bash + Konsole で候補が届くことを確かめる
 3. **ポップアップを出す**（済）：layer-shell で固定の位置にポップアップを出す。フォーカスを奪わないことを確かめる
 4. **カーソルの下に出す**（済）：KWin スクリプトでウィンドウの位置を取り、カーソルの下に出す
-5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、インストールは済）：ほかのターミナル
+5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、Claude desktop、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**（`figxit doctor` の AT-SPI の行は済）：トレイアイコン、設定
 8. **本家に送る**（済。#79、#80、#81 を送り、レビュー待ち）：本家の `main` から切ったブランチで PR にした
@@ -379,13 +390,14 @@ helper-linux/dev.sh
 - 大きさを変えた直後は、シェルが知らせる行数・桁数がまだ古いので、配置を諦めてポップアップを閉じることがある（ログで 734 回中 4 回）。次のキー入力で元に戻る
 - KWin スクリプトは helper の終了時に外れる
 - VS Code 1.145（Wayland、`com.microsoft.VSCode`）の統合ターミナルで、ポップアップがカーソルの下に出る（2026-11-17）。xterm.js はセルの大きさを 7×23（論理ピクセル）と答える。ログでは 1299 回の配置すべてで AT-SPI からテキスト領域が取れ、ウィンドウを動かしても付いていった
+- Claude desktop 5.11492（Wayland、`com.anthropic.Claude`）の Code タブのターミナルで、`--force-renderer-accessibility` を付けて起動すると補完が出る（2026-11-17）
 
 ## 未検証・要確認
 
 - tmux の中での位置（engine の tmux 用の計算がそのまま使えるか）。優先度は低い
-- Konsole と VS Code 以外のターミナル、エディタ（Cursor など VS Code 系は同じ方法で動く見込み）
-- helper の起動より前から VS Code のターミナルにフォーカスがあると、フォーカスの通知が来るまで領域が分からない。ターミナルをクリックし直せば直る
-- VS Code でアクセシビリティを有効にしたことによる重さ
+- Konsole、VS Code、Claude desktop 以外のターミナル、エディタ（Cursor など VS Code 系は同じ方法で動く見込み）
+- helper の起動より前から VS Code や Claude desktop のターミナルにフォーカスがあると、フォーカスの通知が来るまで領域が分からない。ターミナルをクリックし直せば直る
+- VS Code と Claude desktop でアクセシビリティを有効にしたことによる重さ
 - layer-shell の margin を変えてポップアップを動かすときにちらつかないか
 - VS Code でネイティブのタイトルバー（`"window.titleBarStyle": "native"`）を使うとき。メニューバーが `document web` の上に入ると、その高さだけポップアップが上にずれるかもしれない（`toGlobal` の前提が崩れる）
 - KDE 以外のデスクトップでの色（portal の `color-scheme`）。Kubuntu では portal がダークと答え、`kdeglobals` がないときにダークの色になることを確かめた（2026-11-17）

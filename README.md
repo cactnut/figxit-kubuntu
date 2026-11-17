@@ -10,7 +10,7 @@ It is tested only on Kubuntu, on this setup:
 |---|---|
 | OS | Kubuntu 26.04 LTS |
 | Desktop | KDE Plasma 6.6, Wayland session |
-| Terminal | Konsole, and the terminal in VS Code |
+| Terminal | Konsole, and the terminals in VS Code and the Claude desktop app |
 | Shell | bash 5.3 |
 
 Other distributions with KDE Plasma 6 on Wayland may work, but have not been tried. Neither have zsh, fish, tmux, or other terminals. GNOME and X11 sessions are not supported.
@@ -37,6 +37,11 @@ helper-linux/install.sh
 - `figxit stop`, `figxit start`, and `figxit doctor` work as on macOS.
 - To update, pull and run `helper-linux/install.sh` again. `helper-linux/install.sh --uninstall` stops Figxit and removes it. Remove the line from `~/.bashrc` yourself.
 - For the terminal in VS Code, add `"force-renderer-accessibility": true` to `~/.vscode/argv.json`, and set `"editor.accessibilitySupport": "off"` in your settings. Without `argv.json`, the list stays hidden there.
+- For the terminal in the Claude desktop app, start the app with `--force-renderer-accessibility`. The app rewrites its menu entry each time it starts, unless the entry has no `X-Claude-Generated=true` line. So remove that line and add the flag, then quit the app and start it again from the menu:
+
+  ```bash
+  sed -i -e '/^X-Claude-Generated=/d' -e 's/^Exec=claude-desktop/& --force-renderer-accessibility/' ~/.local/share/applications/com.anthropic.Claude.desktop
+  ```
 
 To run from source while working on it, run `helper-linux/dev.sh`, then `source shell/bash/figxit.bash` in a new terminal. Notes on the port, in Japanese, are in [docs/linux-port.md](docs/linux-port.md).
 

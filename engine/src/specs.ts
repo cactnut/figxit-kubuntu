@@ -1,11 +1,10 @@
-import { readFileSync, statSync, type Stats } from "node:fs";
-import { userInfo } from "node:os";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { brandIcon, ICONS, type Icon } from "./brands";
 import { expandAlias } from "./generators";
 import { FIGXIT_ICONS, FIGXIT_SPECS, PATCHES } from "./figxit";
 import { extraRoot, extraSource } from "./extras";
-import { specsDir, userSpecsDir } from "./paths";
+import { specsDir, trusted, userSpecsDir } from "./paths";
 import { loadVersioned } from "./versioned";
 import type { Candidate } from "./sources";
 
@@ -91,39 +90,6 @@ function userSpec(name: string): { file: string; stamp: string } | null {
   } catch {
     return null;
   }
-}
-
-function trusted(stat: Stats): boolean {
-  const uid = process.getuid?.();
-  if (uid !== undefined && stat.uid !== uid && stat.uid !== 0) return false;
-  if (stat.mode & 0o002) return false;
-  return (stat.mode & 0o020) === 0 || ownGroup(stat.gid);
-}
-
-const ownGroups = new Map<number, boolean>();
-
-function ownGroup(gid: number): boolean {
-  let own = ownGroups.get(gid);
-  if (own === undefined) {
-    try {
-      own = privateGroup(gid, userInfo(), readFileSync("/etc/group", "utf8"), readFileSync("/etc/passwd", "utf8"));
-    } catch {
-      own = false;
-    }
-    ownGroups.set(gid, own);
-  }
-  return own;
-}
-
-// Linux gives each user a group of their own and a umask of 002, so files the user makes are group-writable.
-// That is safe when the group is the user's primary group, named after the user, and nobody else is in it.
-export function privateGroup(gid: number, user: { username: string; gid: number }, group: string, passwd: string): boolean {
-  if (gid !== user.gid) return false;
-  const rows = (text: string) => text.split("\n").map((line) => line.split(":"));
-  const entry = rows(group).find((fields) => fields[2] === String(gid));
-  if (entry?.[0] !== user.username) return false;
-  if ((entry[3] ?? "").split(",").some((name) => name && name !== user.username)) return false;
-  return !rows(passwd).some((fields) => fields[3] === String(gid) && fields[0] !== user.username);
 }
 
 const userModules = new Map<string, { stamp: string; spec: Promise<Spec | null> }>();

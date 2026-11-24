@@ -265,7 +265,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 |---|---|---|
 | `engine/src/helper.ts`、`bridge.ts`、`main.ts` | helper の起動に `open -g` を使っている | `launch.ts` の `launchApp` にまとめた（#81） |
 | `engine/src/main.ts` | `figxit doctor` が Accessibility を表示する | Linux では AT-SPI の説明を出す（#81） |
-| `engine/src/specs.ts` の `trusted()` | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される | グループが自分専用なら読み込む（#80） |
+| `engine/src/paths.ts` の `trusted()`（本家の #76 で `specs.ts` から移り、ユーザーエイリアスファイルも使う） | グループ書き込み可のファイルを信用しない。Ubuntu 標準の umask（0002）で作ったユーザー spec（`~/.config/figxit/specs`）は黙って無視される | グループが自分専用なら読み込む（#80） |
 | `shell/zsh/connect.zsh` | helper の起動に `open -g` | macOS 以外では `figxit-engine start` に頼む（#81。zsh がないので動作は未確認） |
 | `engine/src/paths.ts` | `bundlePath`、`appPath`、`specsDir` が `.app/Contents/MacOS` の構成を前提にしている | 直していない。Linux でも Figxit.app と同じ形のフォルダにインストールするので、そのまま使える |
 | `shell/*/figxit.*`、`shell/*/connect.*` | engine の場所が `$FIGXIT_APP/Contents/MacOS/figxit-engine` 決め打ち | 同上 |
@@ -298,7 +298,7 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
 5. **実用的にする**（Konsole のメニューバーとタブバー、複数の画面、倍率 1.45、画面の下端、VS Code、Claude desktop、インストールは済）：ほかのターミナル
 6. **tmux**：engine にある tmux 用の位置計算がそのまま使えるかを確かめる
 7. **仕上げ**（`figxit doctor` の AT-SPI の行は済）：トレイアイコン、設定
-8. **本家に送る**（済。#79、#80、#81 を送り、レビュー待ち）：本家の `main` から切ったブランチで PR にした
+8. **本家に送る**（#79 はマージ済み。#80 はレビューの指摘に対応中、#81 はレビュー待ち）：本家の `main` から切ったブランチで PR にした
 
 ## 本家との関係
 
@@ -310,7 +310,9 @@ helper は KDE のプラットフォームテーマを使わず、`QT_QPA_PLATFO
   - ②：[#80](https://github.com/en3sis/figxit/pull/80)（2026-11-17 に送った）、ブランチは `fix/user-specs-own-group`。中身は `fix/user-specs-private-group` に main にだけあった追加のテスト（`63c9834`）を足して 1 コミットにし、`specs.ts` とテストのコメントを消したもの。消したコメントの説明は、コミットメッセージと PR の説明文に書いた
   - ③：[#81](https://github.com/en3sis/figxit/pull/81)（2026-11-17 に送った）、ブランチは `feat/linux-kde-wayland`。Linux 対応の本体で、`helper-linux/`、`launch.ts` まわり、doctor の AT-SPI の説明、zsh の起動、英語の `helper-linux/README.md`、本家の README の Linux の節。コミットは 2 つ（engine と zsh、helper と README）
     - フォークの main とは 2 点ちがう。コメントを消したこと（理由は `helper-linux/README.md` に移した）と、zsh が macOS では `open -g` のまま、ほかの OS でだけ `figxit-engine start` を使うこと（関数 `_figxit_launch`）。フォークの main は、どの OS でも `figxit-engine start` を使う
-- 3 つとも open で、レビューもコメントもまだない（2026-11-17 に見た）。3 つとも本家の `7b05577` から切っていて、同じファイルを触らないので、どれからマージされてもよい
+- 2026-11-23 に #79 がマージされ、v0.8.0 に入った。同じ日に #80 にレビューのコメントが 2 つ、#81 に「時間がかかるが見込みはある」というコメントがついた
+- 2026-11-24 に、本家の `main`（`54969f3`、v0.8.0 の後）をフォークの main にマージし、#80 のブランチをその上にリベースした。#80 の変更は `paths.ts` の `trusted()` に移した（レビューの指摘 1）
+- #80 のレビューで残っている指摘：`/etc/group` に同じ gid の行が複数あるときの穴、`/etc/group` と `/etc/passwd` が変わったら読み直す、spec から `$HOME` までのフォルダも同じ規則で確かめる。spec をスキップした理由の表示は、本家が別 PR でやってもよいと言っている
 - マージを待つ間にレビューで直したことは、フォークの main にも入れる。マージされたら、フォークの main をその PR の版に合わせる（#81 なら上の 2 点のちがいも本家の版にする）
 - PR の説明文やコメントには、ローカルのユーザー名やパスを書かない（`<user>` などに置き換える）。#80 では一度書いてしまい、説明文を直して古い版を履歴から消した
 - ブランチの使い方
